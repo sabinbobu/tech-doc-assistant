@@ -1,0 +1,89 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tech-doc-assistant"
+version = "0.1.0"
+description = "RAG-based Technical Documentation Assistant"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+
+# ── Core dependencies ──
+# Each one serves a specific purpose in our RAG pipeline:
+dependencies = [
+    # PDF text extraction - fast C-based library, much better than PyPDF2
+    "pymupdf>=1.24.0",
+
+    # LLM orchestration - provides abstractions for chains, retrievers, etc.
+    # Think of it as an "HAL layer" between your code and different LLM providers
+    "langchain>=0.3.0",
+    "langchain-community>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "langchain-anthropic>=0.3.0",
+
+    # Vector database - stores embeddings locally, no server setup needed
+    # Like an SQLite for vectors - perfect for development and small-medium scale
+    "chromadb>=0.5.0",
+
+    # Data validation - like typedef structs with runtime validation
+    # Ensures your data shapes are correct throughout the pipeline
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+
+    # Web UI - turns Python scripts into web apps in minutes
+    "streamlit>=1.38.0",
+
+    # Environment variable management - keeps API keys out of code
+    "python-dotenv>=1.0.0",
+]
+
+# ── Development dependencies ──
+# Only needed when developing, not in production
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",           # Testing framework
+    "pytest-cov>=5.0",       # Test coverage reporting
+    "ruff>=0.6.0",           # Linter + formatter (replaces black + isort + flake8)
+    "mypy>=1.11",            # Static type checking
+    "pre-commit>=3.8",       # Git hooks for code quality
+]
+
+eval = [
+    "ragas>=0.2.0",          # RAG evaluation framework
+    "datasets>=3.0",         # For loading evaluation datasets
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+# ── Ruff configuration ──
+# Ruff is like a MISRA checker but for Python - enforces code quality rules
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort (import sorting)
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+]
+
+# ── Pytest configuration ──
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+# ── MyPy configuration ──
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
