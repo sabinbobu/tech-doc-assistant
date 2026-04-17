@@ -1,0 +1,11 @@
+cat > .dockerignore << 'EOF'
+.venv/
+.env
+.git/
+__pycache__/
+*.pyc
+data/raw/
+vectorstore/
+.pytest_cache/
+htmlcov/
+EOF

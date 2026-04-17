@@ -37,6 +37,9 @@ dependencies = [
 
     # Environment variable management - keeps API keys out of code
     "python-dotenv>=1.0.0",
+
+    # MCP (Model Context Protocol) - for building MCP servers/clients
+    "mcp[cli]>=1.0.0",
 ]
 
 # ── Development dependencies ──
@@ -55,9 +58,14 @@ eval = [
     "datasets>=3.0",         # For loading evaluation datasets
 ]
 
+[tool.uv]
+required-environments = [
+    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+]
+
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*"]
+include = ["src*", "evaluation*"]
 
 # ── Ruff configuration ──
 # Ruff is like a MISRA checker but for Python - enforces code quality rules
