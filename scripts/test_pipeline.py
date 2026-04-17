@@ -39,6 +39,7 @@ questions = [
     "What is the boiling point of water?"
 ]
 
+
 for question in questions:
     print(f"\nQ: {question}")
     print("-" * 60)
