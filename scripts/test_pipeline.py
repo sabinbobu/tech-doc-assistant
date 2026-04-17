@@ -1,11 +1,12 @@
 """
-Manual pipeline verification script — Steps 1 through 4.
+Manual pipeline verification script — full RAG loop.
 
 Run from the project root with:
     uv run python scripts/test_pipeline.py
 
 Requires OPENAI_API_KEY in your .env file.
-This script will cost a few cents in OpenAI API calls (embedding ~100 chunks).
+NOTE: If you already ran this script before, ChromaDB has your chunks cached.
+      The embed_chunks() call will upsert (safe to re-run, no duplicates).
 """
 
 import logging
@@ -14,37 +15,36 @@ logging.basicConfig(level=logging.INFO, format="%(name)s - %(message)s")
 from src.ingestion.pdf_reader import extract_text_from_pdf
 from src.chunking.cleaner import clean_document
 from src.chunking.chunker import chunk_document, get_chunk_stats
-from src.embedding.vector_store import embed_chunks, query_collection
+from src.embedding.vector_store import embed_chunks
+from src.generation.generator import generate_answer
 
-# ── Step 1: Ingest ──
-print("\n=== STEP 1: INGESTION ===")
+# ── Steps 1-3: Ingest, Clean, Chunk ──
+print("\n=== INGESTION + CHUNKING ===")
 doc = extract_text_from_pdf("data/raw/MISRA-Compliance-2020.pdf")
-print(f"Ingested: {doc.filename}, {len(doc.pages)} pages")
-
-# ── Step 2: Clean ──
-print("\n=== STEP 2: CLEANING ===")
 cleaned = clean_document(doc)
-
-# ── Step 3: Chunk ──
-print("\n=== STEP 3: CHUNKING ===")
 chunks = chunk_document(cleaned)
-stats = get_chunk_stats(chunks)
-print(f"Stats: {stats}")
-print(f"\nSample chunk:\n{chunks[10].text}")
-print(f"Citation: {chunks[10].citation}")
+print(get_chunk_stats(chunks))
 
-# ── Step 4: Embed ──
-print("\n=== STEP 4: EMBEDDING ===")
-print("Sending chunks to OpenAI for embedding (costs ~$0.01)...")
+# ── Step 4: Embed (safe to re-run — upsert is idempotent) ──
+print("\n=== EMBEDDING ===")
 embed_chunks(chunks)
 
-# ── Step 4b: Query ──
-print("\n=== STEP 4b: TEST QUERY ===")
-question = "How do I achieve compliance?"
-print(f"Query: '{question}'")
-results = query_collection(question, n_results=3)
+# ── Step 5: Full RAG queries ──
+print("\n=== RAG QUERIES ===")
 
-for i, result in enumerate(results, 1):
-    print(f"\n--- Result {i} (distance: {result['distance']:.4f}) ---")
-    print(f"Citation: {result['metadata']['citation']}")
-    print(f"Text: {result['text'][:200]}...")
+questions = [
+    "What is a deviation in MISRA compliance?",
+    "What are the categories of MISRA guidelines?",
+    "How should violations be documented?",
+    "What is the boiling point of water?"
+]
+
+for question in questions:
+    print(f"\nQ: {question}")
+    print("-" * 60)
+
+    answer = generate_answer(question)
+
+    print(f"A: {answer.answer}")
+    print(f"\n{answer.formatted_sources}")
+    print(f"has_answer: {answer.has_answer}")
