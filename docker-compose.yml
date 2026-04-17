@@ -1,0 +1,17 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      # Mount data and vectorstore as volumes so they persist across container restarts
+      # and don't need to be baked into the image
+      - ./data:/app/data
+      - ./vectorstore:/app/vectorstore
+    environment:
+      # Keys are read from your .env file — never hardcoded in this file
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+    restart: unless-stopped
