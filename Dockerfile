@@ -33,9 +33,11 @@ WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Copy application source
+# Copy application source and install as package
 COPY src/ ./src/
 COPY evaluation/ ./evaluation/
+COPY pyproject.toml README.md ./
+RUN pip install --no-deps -e .
 
 # Create directories for runtime data
 # These will be mounted as volumes in production
@@ -43,8 +45,6 @@ RUN mkdir -p data/raw data/processed vectorstore
 
 # Streamlit config — disable telemetry and set server options
 RUN mkdir -p ~/.streamlit && echo '\
-[general]\n\
-email = ""\n\
 [server]\n\
 headless = true\n\
 port = 8501\n\
