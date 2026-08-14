@@ -33,7 +33,11 @@ logger = logging.getLogger(__name__)
 NO_ANSWER_PHRASE = "does not contain information about this topic"
 
 
-def generate_answer(question: str, n_results: int = 5) -> Answer:
+def generate_answer(
+    question: str,
+    n_results: int | None = None,
+    source_filenames: list[str] | None = None,
+) -> Answer:
     """
     Full RAG pipeline: retrieve relevant chunks → generate cited answer.
 
@@ -43,13 +47,21 @@ def generate_answer(question: str, n_results: int = 5) -> Answer:
     Args:
         question: The user's natural language question.
         n_results: Number of chunks to retrieve and use as context.
+            Defaults to settings.retrieval_top_k.
+        source_filenames: If given, restrict retrieval to these documents
+            only. None searches every indexed document (previous behavior).
 
     Returns:
         Answer object with generated text and source citations.
     """
+    if n_results is None:
+        n_results = settings.retrieval_top_k
+
     # ── Step 1: Retrieve relevant chunks ──
     logger.info(f"Retrieving context for: '{question}'")
-    raw_chunks = query_collection(question, n_results=n_results)
+    raw_chunks = query_collection(
+        question, n_results=n_results, source_filenames=source_filenames
+    )
 
     if not raw_chunks:
         return Answer(
@@ -64,7 +76,12 @@ def generate_answer(question: str, n_results: int = 5) -> Answer:
 
     # ── Step 3: Call LLM ──
     logger.info(f"Generating answer with {settings.llm_provider}/{settings.llm_model}")
-    answer_text = _call_llm(user_prompt)
+    try:
+        answer_text = _call_llm(user_prompt)
+    except Exception as exc:
+        raise RuntimeError(
+            f"LLM call failed ({settings.llm_provider}/{settings.llm_model}): {exc}"
+        ) from exc
 
     # ── Step 4: Package into Answer with sources ──
     sources = [

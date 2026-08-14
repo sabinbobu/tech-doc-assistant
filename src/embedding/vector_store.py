@@ -28,6 +28,7 @@ from pathlib import Path
 import chromadb
 from chromadb.utils import embedding_functions
 from langchain_openai import OpenAIEmbeddings
+from rank_bm25 import BM25Okapi
 
 from src.chunking.models import Chunk
 from src.config import settings
@@ -144,37 +145,57 @@ def embed_chunks(chunks: list[Chunk]) -> None:
     logger.info(f"Done. Collection now has {collection.count()} total vectors.")
 
 
-def query_collection(query_text: str, n_results: int = 5) -> list[dict]:
+def _build_source_filter(source_filenames: list[str] | None) -> dict | None:
+    """Build a ChromaDB `where` clause scoping a query to specific documents."""
+    if not source_filenames:
+        return None
+    if len(source_filenames) == 1:
+        return {"source_filename": source_filenames[0]}
+    return {"source_filename": {"$in": source_filenames}}
+
+
+def list_indexed_documents() -> list[dict]:
     """
-    Search the vector store for chunks similar to the query.
+    List every distinct document currently stored in the collection.
 
-    This is the ONLINE step — called at query time.
-
-    ChromaDB automatically embeds query_text using the same
-    embedding function attached to the collection, then returns
-    the n_results most similar chunks by cosine similarity.
-
-    Args:
-        query_text: The user's question as a plain string.
-        n_results: How many chunks to retrieve (our top-k).
+    All uploaded PDFs share one ChromaDB collection, so this is the only
+    way to see what's actually in there and how many chunks each one
+    contributed — used by the UI to show per-document status and to
+    populate the "search within" document picker.
 
     Returns:
-        List of dicts, each containing:
-        - text: the chunk text
-        - metadata: source, page, citation info
-        - distance: similarity score (lower = more similar for cosine)
+        List of dicts sorted by filename: [{"filename": ..., "chunk_count": ...}, ...]
     """
     client = get_chroma_client()
     collection = get_or_create_collection(client)
 
     if collection.count() == 0:
-        logger.warning("Collection is empty — run embed_chunks first")
         return []
 
+    result = collection.get(include=["metadatas"])
+    counts: dict[str, int] = {}
+    for metadata in result["metadatas"]:
+        filename = metadata.get("source_filename", "Unknown")
+        counts[filename] = counts.get(filename, 0) + 1
+
+    return [
+        {"filename": filename, "chunk_count": count}
+        for filename, count in sorted(counts.items())
+    ]
+
+
+def _vector_search(
+    collection: chromadb.Collection,
+    query_text: str,
+    n_results: int,
+    where: dict | None,
+) -> list[dict]:
+    """Cosine-similarity search — finds chunks that are semantically similar."""
     results = collection.query(
         query_texts=[query_text],
         n_results=min(n_results, collection.count()),
         include=["documents", "metadatas", "distances"],
+        **({"where": where} if where else {}),
     )
 
     # ChromaDB returns nested lists (one per query) — we only send one query
@@ -184,14 +205,155 @@ def query_collection(query_text: str, n_results: int = 5) -> list[dict]:
         results["documents"][0],
         results["metadatas"][0],
         results["distances"][0],
+        strict=True,
     ):
         retrieved.append({
             "text": text,
             "metadata": metadata,
             "distance": distance,
         })
+    return retrieved
+
+
+def _keyword_search(
+    collection: chromadb.Collection,
+    query_text: str,
+    n_results: int,
+    where: dict | None,
+) -> list[dict]:
+    """
+    BM25 keyword search — finds chunks that share exact terms with the query.
+
+    Vector search alone can miss document-specific keywords (part numbers,
+    rule IDs) whose meaning doesn't shift much in embedding space. BM25
+    complements it by rewarding exact/near-exact term overlap.
+
+    Rebuilds the BM25 index from the collection's stored text on every call —
+    fine at this project's scale (hundreds to low thousands of chunks) since
+    there's no persistent index to keep in sync with ingestion.
+    """
+    corpus = collection.get(
+        include=["documents", "metadatas"],
+        **({"where": where} if where else {}),
+    )
+    documents = corpus["documents"]
+    metadatas = corpus["metadatas"]
+
+    if not documents:
+        return []
+
+    tokenized_corpus = [doc.lower().split() for doc in documents]
+    bm25 = BM25Okapi(tokenized_corpus)
+    scores = bm25.get_scores(query_text.lower().split())
+
+    ranked_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
+    top_indices = [i for i in ranked_indices if scores[i] > 0][:n_results]
+
+    return [
+        {"text": documents[i], "metadata": metadatas[i], "distance": None}
+        for i in top_indices
+    ]
+
+
+def _reciprocal_rank_fusion(
+    vector_results: list[dict],
+    keyword_results: list[dict],
+    n_results: int,
+    k: int = 60,
+) -> list[dict]:
+    """
+    Merge vector and keyword rankings via Reciprocal Rank Fusion (RRF).
+
+    Each chunk's fused score is sum(1 / (k + rank)) across whichever
+    list(s) it appears in (rank is 1-indexed). k=60 is the standard RRF
+    constant — it flattens the influence of any single rank so a chunk
+    doesn't need to be #1 in either list to surface, just consistently
+    present. This lets a chunk that's a strong keyword match but a weak
+    vector match (or vice versa) still make the final cut.
+    """
+    def chunk_key(chunk: dict) -> tuple:
+        metadata = chunk["metadata"]
+        return (metadata.get("source_filename"), metadata.get("chunk_index"))
+
+    scores: dict[tuple, float] = {}
+    chunks_by_key: dict[tuple, dict] = {}
+
+    for result_list in (vector_results, keyword_results):
+        for rank, chunk in enumerate(result_list, start=1):
+            key = chunk_key(chunk)
+            scores[key] = scores.get(key, 0.0) + 1 / (k + rank)
+            # Prefer whichever version of the chunk we saw first (the vector
+            # list is processed first, so its real `distance` wins over a
+            # keyword-only hit's placeholder).
+            chunks_by_key.setdefault(key, chunk)
+
+    ranked_keys = sorted(scores, key=lambda key: scores[key], reverse=True)
+
+    fused = []
+    for key in ranked_keys[:n_results]:
+        chunk = dict(chunks_by_key[key])
+        if chunk["distance"] is None:
+            # Keyword-only hit — no cosine distance available. Fall back to
+            # a neutral mid-point so the UI's "relevance = 1 - distance"
+            # display stays in a sane 0-1 range instead of crashing on None.
+            chunk["distance"] = 0.5
+        fused.append(chunk)
+    return fused
+
+
+def query_collection(
+    query_text: str,
+    n_results: int = 5,
+    source_filenames: list[str] | None = None,
+) -> list[dict]:
+    """
+    Search the vector store for chunks relevant to the query.
+
+    This is the ONLINE step — called at query time. It runs two searches
+    in parallel and fuses the results:
+      1. Vector search: ChromaDB embeds query_text with the same model
+         used for the chunks, then returns the most semantically similar
+         chunks by cosine similarity.
+      2. Keyword search: BM25 over the same (optionally filtered) chunks,
+         which catches exact-term matches vector search can miss.
+    See _reciprocal_rank_fusion for how the two rankings are merged.
+
+    Args:
+        query_text: The user's question as a plain string.
+        n_results: How many chunks to retrieve (our top-k) after fusion.
+        source_filenames: If given, restrict the search to chunks whose
+            source_filename metadata is in this list. Every uploaded PDF
+            lives in the same collection, so without this a query can
+            pull in chunks from an unrelated document. None searches
+            everything (the previous, unscoped behavior).
+
+    Returns:
+        List of dicts, each containing:
+        - text: the chunk text
+        - metadata: source, page, citation info
+        - distance: similarity score (lower = more similar for cosine;
+          keyword-only hits get a neutral placeholder — see
+          _reciprocal_rank_fusion)
+    """
+    client = get_chroma_client()
+    collection = get_or_create_collection(client)
+
+    if collection.count() == 0:
+        logger.warning("Collection is empty — run embed_chunks first")
+        return []
+
+    where = _build_source_filter(source_filenames)
+
+    # Over-fetch candidates from each search before fusing, so a chunk
+    # that's merely "good" (not top-1) in one ranking still has a chance
+    # to surface if the other ranking likes it too.
+    candidate_pool = max(n_results * 3, n_results)
+    vector_results = _vector_search(collection, query_text, candidate_pool, where)
+    keyword_results = _keyword_search(collection, query_text, candidate_pool, where)
+
+    retrieved = _reciprocal_rank_fusion(vector_results, keyword_results, n_results)
 
     logger.info(
-        f"Retrieved {len(retrieved)} chunks for query: '{query_text[:60]}...'"
+        f"Retrieved {len(retrieved)} chunks (hybrid) for query: '{query_text[:60]}...'"
     )
     return retrieved
