@@ -27,6 +27,10 @@ dependencies = [
     # Like an SQLite for vectors - perfect for development and small-medium scale
     "chromadb>=0.5.0",
 
+    # Keyword search for hybrid retrieval - catches exact terms (part numbers,
+    # rule IDs) that pure semantic/vector search can miss. No server, no API calls.
+    "rank-bm25>=0.2.2",
+
     # Data validation - like typedef structs with runtime validation
     # Ensures your data shapes are correct throughout the pipeline
     "pydantic>=2.0",

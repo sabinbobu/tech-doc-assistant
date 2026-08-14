@@ -33,7 +33,12 @@ import streamlit as st
 
 from src.chunking.cleaner import clean_document
 from src.chunking.chunker import chunk_document, get_chunk_stats
-from src.embedding.vector_store import embed_chunks, get_chroma_client, get_or_create_collection
+from src.embedding.vector_store import (
+    embed_chunks,
+    get_chroma_client,
+    get_or_create_collection,
+    list_indexed_documents,
+)
 from src.generation.generator import generate_answer
 from src.ingestion.pdf_reader import extract_text_from_pdf
 
@@ -117,11 +122,14 @@ with col_sidebar:
 
     # ── System status indicator ──
     doc_count = get_document_count()
+    indexed_documents = list_indexed_documents() if doc_count > 0 else []
 
     if doc_count == 0:
         st.error("⚠️ No documents loaded. Upload a PDF to get started.")
     else:
         st.success(f"✅ Ready — {doc_count:,} chunks indexed")
+        for doc in indexed_documents:
+            st.caption(f"📄 {doc['filename']} — {doc['chunk_count']:,} chunks")
 
     st.divider()
 
@@ -201,6 +209,20 @@ with col_main:
                             )
                             st.caption(source.text[:300] + "...")
 
+    # ── Document scope picker ──
+    # All uploaded PDFs share one vector store, so without this a question
+    # about one document could pull in chunks from an unrelated one.
+    # Defaulting to "all" preserves the previous unscoped behavior.
+    selected_documents: list[str] = []
+    if indexed_documents:
+        filenames = [doc["filename"] for doc in indexed_documents]
+        selected_documents = st.multiselect(
+            "Search within",
+            options=filenames,
+            default=filenames,
+            help="Limit retrieval to specific documents. Defaults to all loaded documents.",
+        )
+
     # ── Question input ──
     # Disable if no documents are loaded — user can't query an empty system
     question = st.chat_input(
@@ -213,27 +235,40 @@ with col_main:
         with st.chat_message("user"):
             st.write(question)
 
+        # None (all indexed documents) is used when the user hasn't
+        # narrowed the scope, or has selected everything anyway.
+        source_filenames = (
+            selected_documents
+            if selected_documents and len(selected_documents) < len(indexed_documents)
+            else None
+        )
+
         # Generate and display the answer
         with st.chat_message("assistant"):
-            with st.spinner("Searching documentation..."):
-                answer = generate_answer(question)
+            try:
+                with st.spinner("Searching documentation..."):
+                    answer = generate_answer(question, source_filenames=source_filenames)
+            except Exception as e:
+                st.error(f"Something went wrong while generating the answer: {e}")
+                answer = None
 
-            st.write(answer.answer)
+            if answer is not None:
+                st.write(answer.answer)
 
-            if answer.has_answer:
-                with st.expander("📎 Sources", expanded=True):
-                    st.text(answer.formatted_sources)
-                    for source in answer.sources:
-                        st.markdown(
-                            f"**{source.citation}** "
-                            f"*(relevance: {1 - source.distance:.2f})*"
-                        )
-                        st.caption(source.text[:300] + "...")
-            else:
-                st.warning(
-                    "The loaded documents don't contain information about this topic. "
-                    "Try uploading more relevant documentation."
-                )
+                if answer.has_answer:
+                    with st.expander("📎 Sources", expanded=True):
+                        st.text(answer.formatted_sources)
+                        for source in answer.sources:
+                            st.markdown(
+                                f"**{source.citation}** "
+                                f"*(relevance: {1 - source.distance:.2f})*"
+                            )
+                            st.caption(source.text[:300] + "...")
+                else:
+                    st.warning(
+                        "The loaded documents don't contain information about this topic. "
+                        "Try uploading more relevant documentation."
+                    )
 
-        # Save to chat history for display on next rerun
-        st.session_state.chat_history.append((question, answer))
+                # Save to chat history for display on next rerun
+                st.session_state.chat_history.append((question, answer))

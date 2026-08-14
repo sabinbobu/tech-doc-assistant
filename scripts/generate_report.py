@@ -174,6 +174,7 @@ def build_report():
         ("12", "Containerization (Docker)"),
         ("13", "CI/CD Pipeline"),
         ("14", "Technologies Summary"),
+        ("15", "Interview Talking Points"),
     ]
     for num, title in toc:
         pdf.set_font("Helvetica", "", 11)
@@ -783,6 +784,294 @@ def build_report():
     
     for row in rows:
         pdf.table_row(list(row), widths)
+
+    # ── 15. INTERVIEW TALKING POINTS ──
+    pdf.add_page()
+    pdf.chapter_title("15", "Interview Talking Points")
+
+    pdf.body_text(
+        "This section provides structured answers for common interview questions "
+        "about the project. Each subsection covers a key topic area with concrete "
+        "talking points you can use to demonstrate depth of understanding."
+    )
+
+    # ── RAG Architecture ──
+    pdf.section_title("RAG Architecture")
+
+    pdf.subsection_title("Q: Walk me through your RAG pipeline end-to-end.")
+    pdf.body_text(
+        "The pipeline has five stages. First, Ingestion: PyMuPDF extracts text from PDFs "
+        "page-by-page, preserving page numbers for citations. Second, Cleaning: a frequency-analysis "
+        "algorithm detects repeating headers and footers by scanning which lines appear on 40%+ of "
+        "pages, then strips them. Third, Chunking: LangChain's RecursiveCharacterTextSplitter breaks "
+        "text into ~1000-character segments with 200-character overlap, trying paragraph breaks first, "
+        "then sentence boundaries, then word boundaries. Fourth, Embedding: OpenAI's "
+        "text-embedding-3-small converts each chunk into a 1536-dimensional vector stored in ChromaDB. "
+        "Fifth, Generation: given a user query, we embed it with the same model, retrieve the top-5 "
+        "most similar chunks via cosine similarity, inject them into a structured prompt, and call "
+        "GPT-4o-mini (or Claude) at temperature=0 to produce a cited answer."
+    )
+
+    pdf.subsection_title("Q: Why recursive character splitting instead of fixed-size?")
+    pdf.body_text(
+        "Fixed-size splitting cuts mid-sentence or even mid-word, destroying semantic context. "
+        "For example, 'Rule 8.4 states that a compatible decla-' is useless as a chunk. "
+        "RecursiveCharacterTextSplitter tries separators in priority order: paragraph breaks, "
+        "newlines, sentence boundaries, word boundaries. This means chunks align with natural "
+        "language structure. The result is chunks that are semantically coherent, which directly "
+        "improves both retrieval accuracy and generation quality because the LLM receives "
+        "complete thoughts, not fragments."
+    )
+
+    pdf.subsection_title("Q: What does chunk overlap do and why 200 characters?")
+    pdf.body_text(
+        "Overlap creates a sliding window so that if important context spans a chunk boundary, "
+        "both adjacent chunks contain it. Without overlap, a question about a concept that starts "
+        "at the end of chunk N and continues at the start of chunk N+1 would miss the full context. "
+        "200 characters (roughly 1-2 sentences) is enough to capture boundary context without "
+        "excessive duplication. This is about 20% of our 1000-char chunk size, which is a "
+        "standard ratio in production RAG systems."
+    )
+
+    pdf.subsection_title("Q: How does your header/footer detection work?")
+    pdf.body_text(
+        "It uses content-based frequency analysis rather than coordinate-based detection. "
+        "The algorithm scans every page, counts how many pages each unique line appears on, "
+        "and flags any line that appears on 40%+ of pages AND is under 200 characters. "
+        "The character limit prevents removing long content lines that happen to repeat. "
+        "This approach is self-adapting - it learns the pattern from the document itself, "
+        "so it works on any PDF layout without manual configuration. It handles multi-line "
+        "headers naturally and the threshold is configurable."
+    )
+
+    # ── Vector Search & Embeddings ──
+    pdf.add_page()
+    pdf.section_title("Vector Search & Embeddings")
+
+    pdf.subsection_title("Q: How do embeddings work in your system?")
+    pdf.body_text(
+        "Embeddings convert text into points in a high-dimensional geometric space where "
+        "semantic similarity maps to spatial proximity. The sentence 'What is a deviation?' "
+        "and the chunk 'A deviation is a documented permission to violate a guideline' end up "
+        "as nearby vectors even though they share few exact words. We use OpenAI's "
+        "text-embedding-3-small which produces 1536-dimensional vectors. Crucially, we use "
+        "the same embedding model for both document chunks and user queries - this ensures "
+        "they live in the same vector space. Using different models would be like measuring "
+        "one distance in miles and another in kilometers, then comparing the numbers directly."
+    )
+
+    pdf.subsection_title("Q: Explain cosine similarity and why you use it.")
+    pdf.body_text(
+        "Cosine similarity measures the angle between two vectors, ignoring magnitude. "
+        "A score of 1.0 means identical direction (semantically identical), 0.0 means "
+        "orthogonal (unrelated), and -1.0 means opposite. We use it instead of Euclidean "
+        "distance because cosine similarity is magnitude-invariant - a short chunk and a long "
+        "chunk about the same topic will have similar direction even if their vector magnitudes "
+        "differ. ChromaDB returns distance (1 - cosine similarity), so lower distance means "
+        "more similar. In the UI, we display relevance as (1 - distance) to show it as a "
+        "percentage where higher is better."
+    )
+
+    pdf.subsection_title("Q: How does top-k retrieval balance precision and recall?")
+    pdf.body_text(
+        "We retrieve k=5 chunks per query. This is a deliberate tradeoff. Too few (k=1-2) "
+        "gives high precision but risks missing relevant context spread across multiple chunks. "
+        "Too many (k=10-20) improves recall but floods the LLM context with noise, increasing "
+        "hallucination risk and token costs. At k=5, we capture enough context for multi-faceted "
+        "answers while keeping the noise manageable. Our RAGAS context precision score of 0.31 "
+        "actually suggests we could benefit from reducing k or adding a re-ranking step to "
+        "filter out the less relevant chunks before they reach the LLM."
+    )
+
+    # ── LLM Integration & Hallucination Prevention ──
+    pdf.add_page()
+    pdf.section_title("LLM Integration & Hallucination Prevention")
+
+    pdf.subsection_title("Q: How do you prevent the LLM from hallucinating?")
+    pdf.body_text(
+        "We have five defensive layers. First, the system prompt explicitly forbids using "
+        "knowledge outside the provided context - the LLM is instructed to only cite what "
+        "it can find in the retrieved chunks. Second, we feed only the top-5 retrieved chunks "
+        "to the LLM, not the full document - this limits the scope of what it can reference. "
+        "Third, the prompt requires inline citations after every claim in the format "
+        "'[Source: filename, page X]', which forces the LLM to ground each statement. "
+        "Fourth, we detect the phrase 'does not contain information about this topic' in the "
+        "response and set a has_answer=False flag - an honest 'I don't know' is better than "
+        "a confident hallucination. Fifth, we run RAGAS faithfulness evaluation which "
+        "quantitatively measures what percentage of claims in the answer are supported by "
+        "the retrieved context. Our score of 0.73 means 73% of statements are fully grounded."
+    )
+
+    pdf.subsection_title("Q: Why temperature=0?")
+    pdf.body_text(
+        "Temperature controls the randomness of LLM output. At temperature=0, the model "
+        "always picks the highest-probability next token, making responses deterministic and "
+        "reproducible. The same question with the same context will always produce the same "
+        "answer. This is essential for a technical Q&A system because we want factual, "
+        "consistent answers - not creative variations. If a user asks the same question twice, "
+        "they should get the same answer. Higher temperatures introduce randomness that could "
+        "lead to different phrasings, different emphasis, or even different factual claims."
+    )
+
+    pdf.subsection_title("Q: How does your provider abstraction work?")
+    pdf.body_text(
+        "The generate_answer() function is the only public interface. Internally, _call_llm() "
+        "dispatches to either _call_openai() or _call_anthropic() based on a single config "
+        "setting (settings.llm_provider). Switching from GPT-4o-mini to Claude requires only "
+        "changing two environment variables: LLM_PROVIDER=anthropic and LLM_MODEL=claude-3-5-sonnet. "
+        "No code changes needed. This is like a HAL (Hardware Abstraction Layer) in embedded "
+        "systems - the caller does not know or care which LLM provider is being used underneath. "
+        "The abstraction also makes it easy to add new providers (e.g., Gemini, Llama) by "
+        "implementing a single _call_newprovider() function."
+    )
+
+    # ── Testing & Evaluation ──
+    pdf.add_page()
+    pdf.section_title("Testing & Evaluation")
+
+    pdf.subsection_title("Q: Describe your testing strategy.")
+    pdf.body_text(
+        "We have 33 unit tests across 4 modules that run in ~13 seconds with zero API costs. "
+        "Every external service (OpenAI API, ChromaDB) is fully mocked using unittest.mock.patch. "
+        "The tests verify interface contracts: what we call, with what parameters, and what we "
+        "expect back. For example, test_generate_answer patches query_collection to return known "
+        "chunks and patches _call_llm to return a known response, then verifies the Answer object "
+        "has correct sources, has_answer flag, and answer text. This approach is deterministic "
+        "(no flaky tests from network issues), fast (no API latency), and free (no token costs). "
+        "Each pipeline module is tested in isolation with fixtures providing realistic sample data."
+    )
+
+    pdf.subsection_title("Q: Explain your RAGAS evaluation results.")
+    pdf.body_text(
+        "We run three RAGAS metrics using an LLM-as-judge approach (gpt-4o-mini evaluates our "
+        "system's outputs). Faithfulness scored 0.73, meaning 73% of claims in our answers are "
+        "fully supported by retrieved context - good but room for improvement on grounding. "
+        "Answer relevancy scored 0.86, meaning our answers directly address the questions asked - "
+        "this is strong. Context precision scored 0.31, which is our weakest metric - it means "
+        "only 31% of retrieved chunks are actually relevant to the question. This tells us the "
+        "retrieval step is the bottleneck. The LLM is doing well with what it gets, but we're "
+        "giving it too much noise. Our evaluation dataset has 8 hand-crafted questions across "
+        "definition, classification, and process categories - hand-crafting rather than "
+        "auto-generating demonstrates domain understanding."
+    )
+
+    pdf.subsection_title("Q: What would you improve based on these scores?")
+    pdf.body_text(
+        "The 0.31 context precision is the clear priority. Several approaches would help: "
+        "First, add a cross-encoder re-ranker between retrieval and generation. The bi-encoder "
+        "(embedding model) is fast but approximate; a cross-encoder scores query-chunk pairs "
+        "more accurately. Retrieve 20 chunks, re-rank, keep top 5. Second, implement hybrid "
+        "search combining vector similarity with keyword BM25. Some technical terms (like "
+        "'MISRA Rule 8.4') are better matched by exact keywords than semantic similarity. "
+        "Third, tune chunk size - our 1000-char chunks might be too large, causing noise within "
+        "each chunk. Smaller chunks (500-600 chars) with more overlap could improve precision. "
+        "Fourth, add metadata filtering so retrieval can target specific sections or documents."
+    )
+
+    # ── Production Readiness ──
+    pdf.add_page()
+    pdf.section_title("Production Readiness")
+
+    pdf.subsection_title("Q: What makes this production-ready vs. a prototype?")
+    pdf.body_text(
+        "Several engineering practices distinguish this from a quick demo. Type safety: "
+        "Pydantic models validate data at every pipeline boundary - PageContent, DocumentContent, "
+        "Chunk, Answer, RetrievedContext all have defined schemas with runtime validation. "
+        "A malformed chunk cannot silently propagate. Configuration: all settings are centralized "
+        "in a single Pydantic Settings class with environment variable support. No hardcoded "
+        "secrets, no magic strings, clear priority hierarchy (env vars > .env > defaults). "
+        "Observability: comprehensive logging at every pipeline stage with structured messages "
+        "showing what's happening (e.g., 'Embedding 107 chunks...', 'Retrieved 5 chunks for "
+        "query...'). Containerization: Docker with two-stage build, health checks, volume "
+        "mounts for data persistence, and docker-compose for one-command deployment. "
+        "CI/CD: every push runs Ruff (linting), MyPy (type checking), and pytest (33 tests). "
+        "Code cannot reach main without passing all three gates."
+    )
+
+    pdf.subsection_title("Q: How do you handle configuration and secrets?")
+    pdf.body_text(
+        "All configuration flows through src/config.py which uses Pydantic BaseSettings. "
+        "API keys come from a .env file (never committed to git - listed in .gitignore). "
+        "The Settings class provides typed defaults for non-sensitive values (chunk_size=1000, "
+        "llm_model='gpt-4o-mini') and requires explicit values for sensitive ones (api keys). "
+        "In Docker, keys are passed through docker-compose environment section which reads "
+        "from the host's .env file. A single global 'settings' instance is created on module "
+        "import and shared across the application - Singleton pattern. This means changing "
+        "any setting requires only editing .env or setting an environment variable, never "
+        "touching code."
+    )
+
+    pdf.subsection_title("Q: Explain your Docker setup.")
+    pdf.body_text(
+        "We use a two-stage build. Stage 1 (builder) installs all dependencies using uv "
+        "(10-100x faster than pip). Stage 2 (runtime) copies only the installed packages "
+        "and source code, keeping the image small (~200MB vs ~1GB with full build tools). "
+        "Key decisions: python:3.11-slim base for minimal attack surface, volume mounts for "
+        "data/ and vectorstore/ so PDFs and vectors persist across container restarts, a "
+        "health check that pings Streamlit's health endpoint every 30 seconds so Docker "
+        "auto-restarts unhealthy containers, and 'restart: unless-stopped' policy for "
+        "crash recovery. The package is installed with 'pip install --no-deps -e .' in "
+        "the runtime stage to register import paths without re-downloading dependencies."
+    )
+
+    # ── Potential Improvements ──
+    pdf.add_page()
+    pdf.section_title("Potential Improvements You Could Discuss")
+
+    pdf.body_text(
+        "These are improvements you can mention proactively in interviews to show you "
+        "understand the system's limitations and know what 'next level' looks like."
+    )
+
+    pdf.subsection_title("Re-ranking with Cross-Encoders")
+    pdf.body_text(
+        "Current approach uses a bi-encoder (embedding model) for retrieval, which is fast "
+        "but scores query and document independently. A cross-encoder (like ms-marco-MiniLM) "
+        "scores the query-document pair jointly, producing more accurate relevance scores. "
+        "The pattern is: retrieve 20 chunks with the fast bi-encoder, re-rank with the "
+        "accurate cross-encoder, keep top 5. This directly addresses our low context precision "
+        "(0.31) without changing the embedding model or vector database."
+    )
+
+    pdf.subsection_title("Hybrid Search (Vector + BM25)")
+    pdf.body_text(
+        "Semantic search excels at meaning-based matching but struggles with exact terms. "
+        "If a user asks about 'MISRA Rule 8.4', keyword matching (BM25) finds exact matches "
+        "while vector search might return chunks about Rule 8.3 or 8.5 that are semantically "
+        "similar. Hybrid search combines both: run vector search and BM25 in parallel, merge "
+        "results using Reciprocal Rank Fusion (RRF). This gives the best of both worlds - "
+        "semantic understanding plus keyword precision."
+    )
+
+    pdf.subsection_title("Streaming LLM Responses")
+    pdf.body_text(
+        "Currently the UI waits for the complete LLM response before displaying anything. "
+        "Streaming sends tokens back as they're generated, reducing perceived latency from "
+        "5-10 seconds to near-instant. Both OpenAI and Anthropic support streaming natively. "
+        "Implementation requires changing the API call to use stream=True and yielding tokens "
+        "to the Streamlit UI via st.write_stream() or a placeholder that updates incrementally. "
+        "Note: we have already implemented this in generate_answer_streaming()."
+    )
+
+    pdf.subsection_title("Query Expansion")
+    pdf.body_text(
+        "A single query may miss relevant chunks phrased differently. Query expansion uses "
+        "the LLM to generate 3-5 variations of the original question, retrieves chunks for "
+        "each variation, and merges the results. For example, 'What is a deviation?' expands "
+        "to 'How are deviations defined?', 'What constitutes a MISRA deviation?', 'Define "
+        "deviation in compliance context'. This casts a wider net during retrieval without "
+        "changing the embedding model."
+    )
+
+    pdf.subsection_title("Multi-tenancy")
+    pdf.body_text(
+        "Currently all documents go into a single ChromaDB collection. For multi-user or "
+        "multi-project use, each tenant should have an isolated collection. ChromaDB supports "
+        "multiple named collections natively. Implementation: add a 'project_id' to the "
+        "Settings, use it as the collection name, and ensure queries only search within the "
+        "user's collection. This prevents information leakage between tenants and allows "
+        "per-project tuning of chunk size, overlap, and retrieval parameters."
+    )
 
     # ── OUTPUT ──
     output_path = "/Users/bobus/Projects/tech-doc-assistant/Tech_Doc_Assistant_Report.pdf"

@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from src.config import settings
 from src.generation.generator import generate_answer
 from src.generation.models import Answer
 from src.generation.prompts import build_user_prompt, SYSTEM_PROMPT
@@ -117,6 +118,35 @@ class TestGenerateAnswer:
 
         assert result.has_answer is False
         assert "ingestion" in result.answer.lower()
+
+    @patch("src.generation.generator._call_llm")
+    @patch("src.generation.generator.query_collection")
+    def test_forwards_source_filenames_to_retrieval(
+        self, mock_retrieval, mock_llm, sample_raw_chunks
+    ):
+        """source_filenames should be passed through to query_collection to scope the search."""
+        mock_retrieval.return_value = sample_raw_chunks
+        mock_llm.return_value = "A deviation is..."
+
+        generate_answer("What is a deviation?", source_filenames=["MISRA-Compliance-2020.pdf"])
+
+        mock_retrieval.assert_called_once_with(
+            "What is a deviation?",
+            n_results=settings.retrieval_top_k,
+            source_filenames=["MISRA-Compliance-2020.pdf"],
+        )
+
+    @patch("src.generation.generator._call_llm")
+    @patch("src.generation.generator.query_collection")
+    def test_llm_failure_raises_clear_runtime_error(
+        self, mock_retrieval, mock_llm, sample_raw_chunks
+    ):
+        """A raw LLM SDK exception should surface as a clear RuntimeError, not crash."""
+        mock_retrieval.return_value = sample_raw_chunks
+        mock_llm.side_effect = ValueError("model not found: gpt-5.6-luna")
+
+        with pytest.raises(RuntimeError, match="LLM call failed"):
+            generate_answer("What is a deviation?")
 
     @patch("src.generation.generator._call_llm")
     @patch("src.generation.generator.query_collection")

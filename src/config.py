@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     # ── Retrieval Configuration ──
     # How many chunks to retrieve per query
     # Like "top N search results" — too few misses context, too many adds noise
-    retrieval_top_k: int = 5
+    retrieval_top_k: int = 8
 
 
 # Singleton pattern — one settings instance for the whole app
