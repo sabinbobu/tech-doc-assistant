@@ -72,14 +72,18 @@ def get_document_count() -> int:
         return 0
 
 
-def run_ingestion_pipeline(pdf_path: str) -> dict:
+def run_ingestion_pipeline(pdf_path: str, display_name: str | None = None) -> dict:
     """
     Run the full ingestion pipeline on a PDF and return stats.
 
     Returns a dict with processing statistics for display in the UI.
     Separating this from the UI code makes it easier to test and reuse.
+
+    display_name should be the original filename the user uploaded — pdf_path
+    itself is a tempfile path (see the caller below) and must never leak into
+    citations shown to the user.
     """
-    doc = extract_text_from_pdf(pdf_path)
+    doc = extract_text_from_pdf(pdf_path, display_name=display_name)
     cleaned = clean_document(doc)
     chunks = chunk_document(cleaned)
     stats = get_chunk_stats(chunks)
@@ -164,7 +168,7 @@ with col_sidebar:
 
             with st.spinner(f"Processing {uploaded_file.name}..."):
                 try:
-                    result = run_ingestion_pipeline(tmp_path)
+                    result = run_ingestion_pipeline(tmp_path, display_name=uploaded_file.name)
                     st.session_state.ingestion_result = result
                     st.session_state.processing = False
                     st.rerun()  # Refresh to update the status indicator

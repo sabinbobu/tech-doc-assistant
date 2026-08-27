@@ -26,12 +26,23 @@ from src.ingestion.models import DocumentContent, PageContent
 logger = logging.getLogger(__name__)
 
 
-def extract_text_from_pdf(filepath: str | Path) -> DocumentContent:
+def extract_text_from_pdf(
+    filepath: str | Path,
+    display_name: str | None = None,
+) -> DocumentContent:
     """
     Extract text from a PDF file, page by page.
 
     Args:
-        filepath: Path to the PDF file.
+        filepath: Path to the PDF file. When the caller reads from a
+            temporary file (e.g. a Streamlit upload saved via
+            tempfile.NamedTemporaryFile), this is a throwaway path like
+            /tmp/tmpXXXXXX.pdf — not something a user would recognize.
+        display_name: The name to store as DocumentContent.filename and
+            propagate into every citation. Pass the user-facing original
+            filename here whenever filepath is a temp path. Defaults to
+            filepath.name when not given, which is correct for files
+            already living at their real location (e.g. data/raw/*.pdf).
 
     Returns:
         DocumentContent with all pages extracted.
@@ -86,7 +97,7 @@ def extract_text_from_pdf(filepath: str | Path) -> DocumentContent:
     )
 
     return DocumentContent(
-        filename=filepath.name,
+        filename=display_name or filepath.name,
         filepath=str(filepath),
         total_pages=total_pages,
         pages=pages,

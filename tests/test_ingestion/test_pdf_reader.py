@@ -174,3 +174,54 @@ class TestExtractTextFromPdf:
 
         with pytest.raises(ValueError, match="Expected a PDF file"):
             extract_text_from_pdf(fake_file)
+
+    def test_display_name_overrides_filepath_name(self, tmp_path):
+        """A caller-supplied display_name must win over the on-disk filename.
+
+        Regression test: the Streamlit UI saves uploads to a
+        tempfile.NamedTemporaryFile (e.g. /tmp/tmpXXXXXX.pdf) before
+        extraction. Without display_name, that meaningless temp name used to
+        propagate into DocumentContent.filename and then into every chunk's
+        citation — so a user-uploaded doc was permanently cited as
+        "tmpXXXXXX.pdf, page 1" instead of its real name.
+        """
+        import pymupdf as fitz
+
+        from src.ingestion.pdf_reader import extract_text_from_pdf
+
+        # Build a minimal real PDF so fitz.open() has something valid to read —
+        # no fixture file needed, this is self-contained like the rest of the suite.
+        pdf_path = tmp_path / "tmpABC123.pdf"
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((72, 72), "Hello world")
+        doc.save(pdf_path)
+        doc.close()
+
+        result = extract_text_from_pdf(pdf_path, display_name="user_manual.pdf")
+
+        assert result.filename == "user_manual.pdf"
+        # filepath must still point at the real (temp) location on disk —
+        # only the citation-facing name changes.
+        assert result.filepath == str(pdf_path)
+
+    def test_display_name_defaults_to_filepath_name(self, tmp_path):
+        """Without display_name, behavior is unchanged: use filepath.name.
+
+        This is the correct path for files already at their real location,
+        e.g. data/raw/*.pdf processed by extract_all_pdfs.
+        """
+        import pymupdf as fitz
+
+        from src.ingestion.pdf_reader import extract_text_from_pdf
+
+        pdf_path = tmp_path / "MISRA-Compliance-2020.pdf"
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((72, 72), "Hello world")
+        doc.save(pdf_path)
+        doc.close()
+
+        result = extract_text_from_pdf(pdf_path)
+
+        assert result.filename == "MISRA-Compliance-2020.pdf"

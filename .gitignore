@@ -18,6 +18,7 @@ venv/
 # Data & models (too large for git)
 data/raw/*.pdf
 vectorstore/
+graphify-out/
 *.db
 
 # OS
@@ -30,3 +31,6 @@ htmlcov/
 .pytest_cache/
 .mypy_cache/
 .gstack/
+
+# Local learning notes (personal, not part of the project)
+ImplementationLEARNing.md
