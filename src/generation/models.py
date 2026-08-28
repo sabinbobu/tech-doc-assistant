@@ -19,6 +19,15 @@ class RetrievedContext(BaseModel):
     page_number: int = Field(description="Source page number")
     source_filename: str = Field(description="Source document filename")
     distance: float = Field(description="Similarity distance — lower is more relevant")
+    rerank_score: float | None = Field(
+        default=None,
+        description=(
+            "Cross-encoder relevance score (higher is more relevant) — see "
+            "src/retrieval/rerank.py. None when reranking is disabled or the "
+            "model failed to load; sources are still returned, just in "
+            "hybrid search's own order in that case."
+        ),
+    )
 
 
 class Answer(BaseModel):

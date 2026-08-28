@@ -207,9 +207,14 @@ with col_main:
                         st.text(past_answer.formatted_sources)
                         # Show retrieved chunks with their distances
                         for source in past_answer.sources:
+                            rerank_note = (
+                                f", rerank: {source.rerank_score:.2f}"
+                                if source.rerank_score is not None
+                                else ""
+                            )
                             st.markdown(
                                 f"**{source.citation}** "
-                                f"*(relevance: {1 - source.distance:.2f})*"
+                                f"*(relevance: {1 - source.distance:.2f}{rerank_note})*"
                             )
                             st.caption(source.text[:300] + "...")
 
@@ -263,9 +268,14 @@ with col_main:
                     with st.expander("📎 Sources", expanded=True):
                         st.text(answer.formatted_sources)
                         for source in answer.sources:
+                            rerank_note = (
+                                f", rerank: {source.rerank_score:.2f}"
+                                if source.rerank_score is not None
+                                else ""
+                            )
                             st.markdown(
                                 f"**{source.citation}** "
-                                f"*(relevance: {1 - source.distance:.2f})*"
+                                f"*(relevance: {1 - source.distance:.2f}{rerank_note})*"
                             )
                             st.caption(source.text[:300] + "...")
                 else:
