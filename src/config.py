@@ -121,6 +121,14 @@ class Settings(BaseSettings):
     # reasonable override once you have real latency numbers to justify it.
     rewrite_model: str | None = None
 
+    # Max output tokens for a generated answer. 1024 is enough for a lookup
+    # answer with citations but truncates a multi-step configuration
+    # procedure mid-sentence — synthesis mode (src/retrieval/query_plan.py)
+    # requests a larger budget explicitly rather than raising this default,
+    # since most questions are still simple lookups that don't need it.
+    max_answer_tokens: int = 1024
+    synthesis_answer_tokens: int = 3000
+
 
 # Singleton pattern — one settings instance for the whole app
 # In C terms, this is like a global config struct initialized once at startup

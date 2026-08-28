@@ -35,6 +35,36 @@ logger = logging.getLogger(__name__)
 NO_ANSWER_PHRASE = "does not contain information about this topic"
 
 
+def _is_refusal(answer_text: str) -> bool:
+    """
+    True only when the model refused outright — not when a real answer
+    happens to mention what the docs don't cover.
+
+    WHY NOT A SUBSTRING TEST:
+    This used to be `NO_ANSWER_PHRASE not in answer_text.lower()`, which
+    misfires on exactly the answers we most want to keep. The system prompt
+    tells the model to answer the supported parts of a multi-part question
+    and separately note the unsupported ones — so a *good* partial answer
+    routinely contains a sentence like "...the documentation does not contain
+    information about this topic in code form, but Section 8 describes...".
+    The substring test flagged that whole answer as a failure, and the UI
+    (src/ui/app.py) then hid the Sources panel and showed a "no information"
+    warning over a perfectly good answer.
+
+    The prompt instructs the model to emit the refusal as its *entire*
+    response ("respond with exactly: ..."), so that's what we detect: the
+    phrase carrying essentially the whole message, not appearing somewhere
+    inside it.
+    """
+    normalized = answer_text.strip().lower()
+    if NO_ANSWER_PHRASE not in normalized:
+        return False
+    # A refusal is the phrase and little else (allowing for the leading
+    # "The provided documentation " and trailing punctuation the prompt
+    # specifies). A real answer that merely mentions it is much longer.
+    return len(normalized) <= len(NO_ANSWER_PHRASE) + 40
+
+
 def generate_answer(
     question: str,
     n_results: int | None = None,
@@ -118,7 +148,7 @@ def generate_answer(
         for chunk in raw_chunks
     ]
 
-    has_answer = NO_ANSWER_PHRASE not in answer_text.lower()
+    has_answer = not _is_refusal(answer_text)
 
     return Answer(
         question=question,
@@ -128,7 +158,11 @@ def generate_answer(
     )
 
 
-def _call_llm(user_prompt: str) -> str:
+def _call_llm(
+    user_prompt: str,
+    system_prompt: str = SYSTEM_PROMPT,
+    max_tokens: int | None = None,
+) -> str:
     """
     Call the configured LLM provider and return the response text.
 
@@ -142,44 +176,51 @@ def _call_llm(user_prompt: str) -> str:
 
     Args:
         user_prompt: The fully constructed prompt with context + question.
+        system_prompt: Defaults to the lookup-mode SYSTEM_PROMPT. Synthesis
+            mode (query_plan.py) passes SYNTHESIS_SYSTEM_PROMPT instead.
+        max_tokens: Defaults to settings.max_answer_tokens. Synthesis mode
+            passes settings.synthesis_answer_tokens — a step-by-step
+            procedure doesn't fit in a lookup-sized budget.
 
     Returns:
         Raw response string from the LLM.
     """
+    if max_tokens is None:
+        max_tokens = settings.max_answer_tokens
     if settings.llm_provider == "anthropic":
-        return _call_anthropic(user_prompt)
+        return _call_anthropic(user_prompt, system_prompt, max_tokens)
     else:
-        return _call_openai(user_prompt)
+        return _call_openai(user_prompt, system_prompt, max_tokens)
 
 
-def _call_openai(user_prompt: str) -> str:
+def _call_openai(user_prompt: str, system_prompt: str, max_tokens: int) -> str:
     """Call OpenAI API and return response text."""
     client = OpenAI(api_key=settings.openai_api_key)
 
     response = client.chat.completions.create(
         model=settings.llm_model,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0,  # 0 = deterministic — we want consistent, factual answers
         # not creative variation. Same query should give same answer.
         # Like disabling dithering on your ADC for stable readings.
-        max_tokens=1024,
+        max_tokens=max_tokens,
     )
 
     return response.choices[0].message.content or ""
 
 
-def _call_anthropic(user_prompt: str) -> str:
+def _call_anthropic(user_prompt: str, system_prompt: str, max_tokens: int) -> str:
     """Call Anthropic API and return response text."""
     client = Anthropic(api_key=settings.anthropic_api_key)
 
     response = client.messages.create(
         model=settings.llm_model,
-        max_tokens=1024,
+        max_tokens=max_tokens,
         temperature=0,
-        system=SYSTEM_PROMPT,
+        system=system_prompt,
         messages=[
             {"role": "user", "content": user_prompt},
         ],

@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from src.config import settings
-from src.generation.generator import generate_answer
+from src.generation.generator import _is_refusal, generate_answer
 from src.generation.models import Answer
 from src.generation.prompts import build_user_prompt
 
@@ -149,6 +149,29 @@ class TestGenerateAnswer:
         result = generate_answer("What is the meaning of life?")
 
         assert result.has_answer is False
+
+    @patch("src.generation.generator._call_llm")
+    @patch("src.generation.generator.query_collection")
+    def test_has_answer_true_for_partial_answer_mentioning_the_refusal_phrase(
+        self, mock_retrieval, mock_llm, sample_raw_chunks
+    ):
+        """A real, useful partial answer that happens to mention what ISN'T
+        covered must not be flagged as a total failure -- this is the bug
+        _is_refusal exists to fix. The old substring check treated this
+        exact shape of answer as a refusal, which then hid its own Sources
+        panel in the UI (src/ui/app.py) behind a "no information" warning."""
+        mock_retrieval.return_value = sample_raw_chunks
+        mock_llm.return_value = (
+            "The sensor reports Overtemperature and Short-Circuit faults "
+            "[Source: manual.pdf, page 12]. The documentation does not "
+            "contain information about this topic in Python form -- it "
+            "only describes the hardware CAL pin procedure "
+            "[Source: manual.pdf, page 15]."
+        )
+
+        result = generate_answer("What faults does it report, and how do I calibrate it in Python?")
+
+        assert result.has_answer is True
 
     @patch("src.generation.generator.query_collection")
     def test_empty_retrieval_returns_graceful_answer(self, mock_retrieval):
@@ -333,3 +356,42 @@ class TestAnswerModel:
         answer = Answer(question="test", answer="test answer", sources=sources, has_answer=True)
         formatted = answer.formatted_sources
         assert formatted.count("misra.pdf, page 14") == 1
+
+
+# ── Tests for _is_refusal ──
+
+
+class TestIsRefusal:
+    def test_exact_refusal_phrase(self):
+        assert (
+            _is_refusal("The provided documentation does not contain information about this topic.")
+            is True
+        )
+
+    def test_refusal_with_surrounding_whitespace(self):
+        assert (
+            _is_refusal(
+                "  The provided documentation does not contain information about this topic.  "
+            )
+            is True
+        )
+
+    def test_partial_answer_mentioning_the_phrase_is_not_a_refusal(self):
+        assert (
+            _is_refusal(
+                "The sensor reports Overtemperature and Short-Circuit faults "
+                "[Source: manual.pdf, page 12]. The documentation does not "
+                "contain information about this topic in Python form -- it "
+                "only describes the hardware CAL pin procedure "
+                "[Source: manual.pdf, page 15]."
+            )
+            is False
+        )
+
+    def test_normal_answer_is_not_a_refusal(self):
+        assert (
+            _is_refusal(
+                "The BTS7200-2EPA is a Smart High-Side Power Switch [Source: ds.pdf, page 2]."
+            )
+            is False
+        )
