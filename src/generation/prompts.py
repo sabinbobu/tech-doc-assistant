@@ -79,9 +79,7 @@ def build_user_prompt(question: str, context_chunks: list[dict]) -> str:
     context_parts = []
     for i, chunk in enumerate(context_chunks, 1):
         citation = chunk["metadata"].get("citation", "Unknown source")
-        context_parts.append(
-            f"Context passage {i} [Source: {citation}]:\n{chunk['text']}"
-        )
+        context_parts.append(f"Context passage {i} [Source: {citation}]:\n{chunk['text']}")
 
     context_block = "\n\n".join(context_parts)
 

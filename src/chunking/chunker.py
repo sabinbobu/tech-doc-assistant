@@ -46,9 +46,10 @@ class ChunkingConfig:
     with different chunking configs without changing the app-wide config.
     Like having per-module #defines instead of global constants.
     """
-    chunk_size: int = 1000       # Target characters per chunk
-    chunk_overlap: int = 200     # Overlap between consecutive chunks
-    min_chunk_size: int = 100    # Discard chunks smaller than this (noise)
+
+    chunk_size: int = 1000  # Target characters per chunk
+    chunk_overlap: int = 200  # Overlap between consecutive chunks
+    min_chunk_size: int = 100  # Discard chunks smaller than this (noise)
 
 
 def chunk_document(
@@ -97,7 +98,9 @@ def chunk_document(
             # Skip chunks that are too small — they're usually noise
             # (a stray header that survived cleaning, a lone page number, etc.)
             if len(raw_chunk.strip()) < config.min_chunk_size:
-                logger.debug(f"Skipping tiny chunk ({len(raw_chunk)} chars) on page {page.page_number}")
+                logger.debug(
+                    f"Skipping tiny chunk ({len(raw_chunk)} chars) on page {page.page_number}"
+                )
                 continue
 
             # Find where this chunk sits within the page text

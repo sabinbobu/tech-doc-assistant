@@ -24,18 +24,20 @@ CONNECT TO CLAUDE DESKTOP:
 
 import json
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.config import settings
 from src.embedding.vector_store import (
     get_chroma_client,
     get_or_create_collection,
     query_collection,
 )
 from src.generation.generator import generate_answer
+from src.retrieval.rerank import rerank
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,6 +48,7 @@ logger = logging.getLogger(__name__)
 # reuse it across all tool calls.
 # Like initializing your peripheral drivers once in main() —
 # not on every function call.
+
 
 @asynccontextmanager
 async def app_lifespan(app) -> AsyncIterator[dict]:
@@ -71,8 +74,10 @@ mcp = FastMCP(
 # If an agent passes an empty query, it's rejected here — not buried
 # in a stack trace inside ChromaDB.
 
+
 class SearchInput(BaseModel):
     """Input for the search_documentation tool."""
+
     model_config = ConfigDict(
         str_strip_whitespace=True,
         extra="forbid",
@@ -80,7 +85,7 @@ class SearchInput(BaseModel):
     query: str = Field(
         ...,
         description="Search query to find relevant documentation passages. "
-                    "Example: 'external linkage rules', 'deviation approval process'",
+        "Example: 'external linkage rules', 'deviation approval process'",
         min_length=3,
         max_length=500,
     )
@@ -94,6 +99,7 @@ class SearchInput(BaseModel):
 
 class AskInput(BaseModel):
     """Input for the ask_documentation tool."""
+
     model_config = ConfigDict(
         str_strip_whitespace=True,
         extra="forbid",
@@ -101,7 +107,7 @@ class AskInput(BaseModel):
     question: str = Field(
         ...,
         description="Natural language question to answer using the documentation. "
-                    "Example: 'What is a deviation in MISRA compliance?'",
+        "Example: 'What is a deviation in MISRA compliance?'",
         min_length=10,
         max_length=500,
     )
@@ -114,6 +120,7 @@ class AskInput(BaseModel):
 
 
 # ── Tools ──
+
 
 @mcp.tool(
     name="docs_search",
@@ -133,6 +140,10 @@ async def docs_search(params: SearchInput) -> str:
     or when you need to feed passages into your own reasoning chain.
 
     This tool performs RETRIEVAL ONLY — no LLM call, no answer generation.
+    Results ARE reranked by a local cross-encoder (no LLM involved — see
+    src/retrieval/rerank.py) for the same reason docs_ask's answers are:
+    hybrid search's fused ranking is a fast approximation, and a model that
+    actually reads query+passage together orders results more accurately.
     For a complete Q&A answer with citations, use docs_ask instead.
 
     Args:
@@ -147,22 +158,34 @@ async def docs_search(params: SearchInput) -> str:
                 "citation": "filename, page N",
                 "page_number": N,
                 "source_filename": "filename.pdf",
-                "relevance_score": 0.0–1.0  (higher = more relevant)
+                "relevance_score": 0.0–1.0  (higher = more relevant; from
+                    hybrid search's distance, kept for backward compatibility)
+                "rerank_score": raw cross-encoder score (higher = more
+                    relevant; this is what results are actually ORDERED by —
+                    prefer this over relevance_score when comparing results)
             }
     """
     try:
-        raw_results = query_collection(params.query, n_results=params.n_results)
+        # Same candidate-pool-then-rerank pattern as generate_answer() in
+        # src/generation/generator.py: fetch more than n_results so the
+        # reranker has something to actually re-sort.
+        candidate_k = max(settings.retrieval_candidate_k, params.n_results)
+        candidates = query_collection(params.query, n_results=candidate_k)
+        raw_results = rerank(params.query, candidates, top_k=params.n_results)
 
         if not raw_results:
-            return json.dumps({
-                "results": [],
-                "message": "No documents indexed. Run the ingestion pipeline first.",
-            })
+            return json.dumps(
+                {
+                    "results": [],
+                    "message": "No documents indexed. Run the ingestion pipeline first.",
+                }
+            )
 
-        # Format results — convert distance to relevance score
-        # Distance is 0–2 for cosine (lower = better)
-        # Relevance = 1 - (distance / 2) gives 0–1 (higher = better)
-        # More intuitive for agents reasoning about result quality
+        # relevance_score: convert distance to a 0-1 score for backward
+        # compatibility (Distance is 0-2 for cosine, lower = better;
+        # keyword-only hits get a neutral placeholder — see
+        # _reciprocal_rank_fusion in vector_store.py). rerank_score is the
+        # score results are actually sorted by — see the docstring above.
         formatted = [
             {
                 "text": r["text"],
@@ -170,15 +193,19 @@ async def docs_search(params: SearchInput) -> str:
                 "page_number": r["metadata"].get("page_number", 0),
                 "source_filename": r["metadata"].get("source_filename", "Unknown"),
                 "relevance_score": round(1 - (r["distance"] / 2), 3),
+                "rerank_score": round(r["rerank_score"], 3) if "rerank_score" in r else None,
             }
             for r in raw_results
         ]
 
-        return json.dumps({
-            "query": params.query,
-            "total_results": len(formatted),
-            "results": formatted,
-        }, indent=2)
+        return json.dumps(
+            {
+                "query": params.query,
+                "total_results": len(formatted),
+                "results": formatted,
+            },
+            indent=2,
+        )
 
     except Exception as e:
         logger.error(f"docs_search failed: {e}")
@@ -233,20 +260,23 @@ async def docs_ask(params: AskInput) -> str:
     try:
         answer = generate_answer(params.question, n_results=params.n_results)
 
-        return json.dumps({
-            "question": answer.question,
-            "answer": answer.answer,
-            "has_answer": answer.has_answer,
-            "sources": [
-                {
-                    "citation": s.citation,
-                    "page_number": s.page_number,
-                    "source_filename": s.source_filename,
-                    "relevance_score": round(1 - (s.distance / 2), 3),
-                }
-                for s in answer.sources
-            ],
-        }, indent=2)
+        return json.dumps(
+            {
+                "question": answer.question,
+                "answer": answer.answer,
+                "has_answer": answer.has_answer,
+                "sources": [
+                    {
+                        "citation": s.citation,
+                        "page_number": s.page_number,
+                        "source_filename": s.source_filename,
+                        "relevance_score": round(1 - (s.distance / 2), 3),
+                    }
+                    for s in answer.sources
+                ],
+            },
+            indent=2,
+        )
 
     except Exception as e:
         logger.error(f"docs_ask failed: {e}")
@@ -282,22 +312,27 @@ async def docs_status() -> str:
         collection = get_or_create_collection(client)
         count = collection.count()
 
-        return json.dumps({
-            "ready": count > 0,
-            "indexed_chunks": count,
-            "message": (
-                f"{count} chunks indexed and ready for queries."
-                if count > 0
-                else "No documents indexed. Run the ingestion pipeline first."
-            ),
-        }, indent=2)
+        return json.dumps(
+            {
+                "ready": count > 0,
+                "indexed_chunks": count,
+                "message": (
+                    f"{count} chunks indexed and ready for queries."
+                    if count > 0
+                    else "No documents indexed. Run the ingestion pipeline first."
+                ),
+            },
+            indent=2,
+        )
 
     except Exception as e:
-        return json.dumps({
-            "ready": False,
-            "indexed_chunks": 0,
-            "message": f"Could not connect to vector store: {str(e)}",
-        })
+        return json.dumps(
+            {
+                "ready": False,
+                "indexed_chunks": 0,
+                "message": f"Could not connect to vector store: {str(e)}",
+            }
+        )
 
 
 # ── Entry point ──

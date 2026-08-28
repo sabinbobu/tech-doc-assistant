@@ -23,8 +23,8 @@ import pytest
 from src.chunking.models import Chunk
 from src.embedding.vector_store import embed_chunks, list_indexed_documents, query_collection
 
-
 # ── Fixtures ──
+
 
 @pytest.fixture
 def sample_chunks() -> list[Chunk]:
@@ -40,7 +40,10 @@ def sample_chunks() -> list[Chunk]:
             end_char=80,
         ),
         Chunk(
-            text="Rule 8.5: An external object or function shall be declared in one and only one file.",
+            text=(
+                "Rule 8.5: An external object or function shall be declared "
+                "in one and only one file."
+            ),
             source_filename="misra.pdf",
             source_filepath="/tmp/misra.pdf",
             page_number=24,
@@ -53,13 +56,11 @@ def sample_chunks() -> list[Chunk]:
 
 # ── Tests for embed_chunks ──
 
-class TestEmbedChunks:
 
+class TestEmbedChunks:
     @patch("src.embedding.vector_store.get_or_create_collection")
     @patch("src.embedding.vector_store.get_chroma_client")
-    def test_upserts_correct_number_of_chunks(
-        self, mock_client, mock_collection_fn, sample_chunks
-    ):
+    def test_upserts_correct_number_of_chunks(self, mock_client, mock_collection_fn, sample_chunks):
         """embed_chunks should upsert all provided chunks."""
         mock_collection = MagicMock()
         mock_collection_fn.return_value = mock_collection
@@ -105,8 +106,8 @@ class TestEmbedChunks:
 
 # ── Tests for _vector_search (cosine similarity via ChromaDB) ──
 
-class TestVectorSearch:
 
+class TestVectorSearch:
     @patch("src.embedding.vector_store.get_or_create_collection")
     @patch("src.embedding.vector_store.get_chroma_client")
     def test_no_source_filenames_omits_where_clause(self, mock_client, mock_collection_fn):
@@ -141,9 +142,7 @@ class TestVectorSearch:
 
         query_collection("a question", source_filenames=["bts7200.pdf"])
 
-        assert mock_collection.query.call_args.kwargs["where"] == {
-            "source_filename": "bts7200.pdf"
-        }
+        assert mock_collection.query.call_args.kwargs["where"] == {"source_filename": "bts7200.pdf"}
 
     @patch("src.embedding.vector_store.get_or_create_collection")
     @patch("src.embedding.vector_store.get_chroma_client")
@@ -168,8 +167,8 @@ class TestVectorSearch:
 
 # ── Tests for _keyword_search (BM25) ──
 
-class TestKeywordSearch:
 
+class TestKeywordSearch:
     @patch("src.embedding.vector_store.get_or_create_collection")
     @patch("src.embedding.vector_store.get_chroma_client")
     def test_ranks_exact_term_match_first(self, mock_client, mock_collection_fn):
@@ -226,8 +225,8 @@ class TestKeywordSearch:
 
 # ── Tests for _reciprocal_rank_fusion ──
 
-class TestReciprocalRankFusion:
 
+class TestReciprocalRankFusion:
     def test_chunk_present_in_both_lists_outranks_single_list_hits(self):
         from src.embedding.vector_store import _reciprocal_rank_fusion
 
@@ -289,8 +288,8 @@ class TestReciprocalRankFusion:
 
 # ── Tests for query_collection (composition) ──
 
-class TestQueryCollection:
 
+class TestQueryCollection:
     @patch("src.embedding.vector_store.get_or_create_collection")
     @patch("src.embedding.vector_store.get_chroma_client")
     def test_returns_results_with_expected_keys(self, mock_client, mock_collection_fn):
@@ -328,8 +327,8 @@ class TestQueryCollection:
 
 # ── Tests for list_indexed_documents ──
 
-class TestListIndexedDocuments:
 
+class TestListIndexedDocuments:
     @patch("src.embedding.vector_store.get_or_create_collection")
     @patch("src.embedding.vector_store.get_chroma_client")
     def test_empty_collection_returns_empty_list(self, mock_client, mock_collection_fn):

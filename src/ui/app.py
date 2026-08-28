@@ -27,12 +27,11 @@ in the ECU firmware underneath.
 
 import logging
 import tempfile
-from pathlib import Path
 
 import streamlit as st
 
-from src.chunking.cleaner import clean_document
 from src.chunking.chunker import chunk_document, get_chunk_stats
+from src.chunking.cleaner import clean_document
 from src.embedding.vector_store import (
     embed_chunks,
     get_chroma_client,
@@ -57,6 +56,7 @@ st.set_page_config(
 
 # ── Helper functions ──
 
+
 def get_document_count() -> int:
     """
     Check how many vectors are stored in ChromaDB.
@@ -72,14 +72,18 @@ def get_document_count() -> int:
         return 0
 
 
-def run_ingestion_pipeline(pdf_path: str) -> dict:
+def run_ingestion_pipeline(pdf_path: str, display_name: str | None = None) -> dict:
     """
     Run the full ingestion pipeline on a PDF and return stats.
 
     Returns a dict with processing statistics for display in the UI.
     Separating this from the UI code makes it easier to test and reuse.
+
+    display_name should be the original filename the user uploaded — pdf_path
+    itself is a tempfile path (see the caller below) and must never leak into
+    citations shown to the user.
     """
-    doc = extract_text_from_pdf(pdf_path)
+    doc = extract_text_from_pdf(pdf_path, display_name=display_name)
     cleaned = clean_document(doc)
     chunks = chunk_document(cleaned)
     stats = get_chunk_stats(chunks)
@@ -156,15 +160,13 @@ with col_sidebar:
             # Save uploaded file to a temp location
             # Streamlit gives us a BytesIO object — we need a real file path
             # for PyMuPDF to open. tempfile handles cleanup automatically.
-            with tempfile.NamedTemporaryFile(
-                delete=False, suffix=".pdf"
-            ) as tmp_file:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                 tmp_file.write(uploaded_file.getvalue())
                 tmp_path = tmp_file.name
 
             with st.spinner(f"Processing {uploaded_file.name}..."):
                 try:
-                    result = run_ingestion_pipeline(tmp_path)
+                    result = run_ingestion_pipeline(tmp_path, display_name=uploaded_file.name)
                     st.session_state.ingestion_result = result
                     st.session_state.processing = False
                     st.rerun()  # Refresh to update the status indicator
@@ -178,10 +180,10 @@ with col_sidebar:
         st.success("✅ Document processed successfully!")
         st.markdown(f"""
         **Results:**
-        - File: `{r['filename']}`
-        - Pages extracted: `{r['pages']}`
-        - Chunks created: `{r['chunks']}`
-        - Avg chunk size: `{r['avg_chunk_size']} chars`
+        - File: `{r["filename"]}`
+        - Pages extracted: `{r["pages"]}`
+        - Chunks created: `{r["chunks"]}`
+        - Avg chunk size: `{r["avg_chunk_size"]} chars`
         """)
 
 
@@ -203,9 +205,14 @@ with col_main:
                         st.text(past_answer.formatted_sources)
                         # Show retrieved chunks with their distances
                         for source in past_answer.sources:
+                            rerank_note = (
+                                f", rerank: {source.rerank_score:.2f}"
+                                if source.rerank_score is not None
+                                else ""
+                            )
                             st.markdown(
                                 f"**{source.citation}** "
-                                f"*(relevance: {1 - source.distance:.2f})*"
+                                f"*(relevance: {1 - source.distance:.2f}{rerank_note})*"
                             )
                             st.caption(source.text[:300] + "...")
 
@@ -259,9 +266,14 @@ with col_main:
                     with st.expander("📎 Sources", expanded=True):
                         st.text(answer.formatted_sources)
                         for source in answer.sources:
+                            rerank_note = (
+                                f", rerank: {source.rerank_score:.2f}"
+                                if source.rerank_score is not None
+                                else ""
+                            )
                             st.markdown(
                                 f"**{source.citation}** "
-                                f"*(relevance: {1 - source.distance:.2f})*"
+                                f"*(relevance: {1 - source.distance:.2f}{rerank_note})*"
                             )
                             st.caption(source.text[:300] + "...")
                 else:

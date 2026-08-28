@@ -15,35 +15,33 @@ license = {text = "MIT"}
 dependencies = [
     # PDF text extraction - fast C-based library, much better than PyPDF2
     "pymupdf>=1.24.0",
-
     # LLM orchestration - provides abstractions for chains, retrievers, etc.
     # Think of it as an "HAL layer" between your code and different LLM providers
     "langchain>=0.3.0",
     "langchain-community>=0.3.0",
     "langchain-openai>=0.2.0",
     "langchain-anthropic>=0.3.0",
-
     # Vector database - stores embeddings locally, no server setup needed
     # Like an SQLite for vectors - perfect for development and small-medium scale
     "chromadb>=0.5.0",
-
     # Keyword search for hybrid retrieval - catches exact terms (part numbers,
     # rule IDs) that pure semantic/vector search can miss. No server, no API calls.
     "rank-bm25>=0.2.2",
-
+    # Cross-encoder reranking - re-scores hybrid search's candidate pool by
+    # actually reading query+passage together, instead of comparing precomputed
+    # vectors. Runs locally (CPU), no API key, one-time model download.
+    "sentence-transformers>=3.0.0,<4.0.0",
     # Data validation - like typedef structs with runtime validation
     # Ensures your data shapes are correct throughout the pipeline
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
-
     # Web UI - turns Python scripts into web apps in minutes
     "streamlit>=1.38.0",
-
     # Environment variable management - keeps API keys out of code
     "python-dotenv>=1.0.0",
-
     # MCP (Model Context Protocol) - for building MCP servers/clients
     "mcp[cli]>=1.0.0",
+    "numpy<2",
 ]
 
 # ── Development dependencies ──

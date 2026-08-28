@@ -23,11 +23,9 @@ ChromaDB is your data logger — stores those readings with timestamps
 """
 
 import logging
-from pathlib import Path
 
 import chromadb
 from chromadb.utils import embedding_functions
-from langchain_openai import OpenAIEmbeddings
 from rank_bm25 import BM25Okapi
 
 from src.chunking.models import Chunk
@@ -77,10 +75,7 @@ def get_or_create_collection(
         metadata={"hnsw:space": "cosine"},  # cosine similarity for semantic search
     )
 
-    logger.info(
-        f"Collection '{COLLECTION_NAME}' ready "
-        f"({collection.count()} vectors stored)"
-    )
+    logger.info(f"Collection '{COLLECTION_NAME}' ready ({collection.count()} vectors stored)")
     return collection
 
 
@@ -131,9 +126,9 @@ def embed_chunks(chunks: list[Chunk]) -> None:
     # ChromaDB recommends batching large inserts
     batch_size = 100
     for i in range(0, len(chunks), batch_size):
-        batch_ids = ids[i:i + batch_size]
-        batch_docs = documents[i:i + batch_size]
-        batch_meta = metadatas[i:i + batch_size]
+        batch_ids = ids[i : i + batch_size]
+        batch_docs = documents[i : i + batch_size]
+        batch_meta = metadatas[i : i + batch_size]
 
         collection.upsert(
             ids=batch_ids,
@@ -179,8 +174,7 @@ def list_indexed_documents() -> list[dict]:
         counts[filename] = counts.get(filename, 0) + 1
 
     return [
-        {"filename": filename, "chunk_count": count}
-        for filename, count in sorted(counts.items())
+        {"filename": filename, "chunk_count": count} for filename, count in sorted(counts.items())
     ]
 
 
@@ -207,11 +201,13 @@ def _vector_search(
         results["distances"][0],
         strict=True,
     ):
-        retrieved.append({
-            "text": text,
-            "metadata": metadata,
-            "distance": distance,
-        })
+        retrieved.append(
+            {
+                "text": text,
+                "metadata": metadata,
+                "distance": distance,
+            }
+        )
     return retrieved
 
 
@@ -249,10 +245,7 @@ def _keyword_search(
     ranked_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
     top_indices = [i for i in ranked_indices if scores[i] > 0][:n_results]
 
-    return [
-        {"text": documents[i], "metadata": metadatas[i], "distance": None}
-        for i in top_indices
-    ]
+    return [{"text": documents[i], "metadata": metadatas[i], "distance": None} for i in top_indices]
 
 
 def _reciprocal_rank_fusion(
@@ -271,6 +264,7 @@ def _reciprocal_rank_fusion(
     present. This lets a chunk that's a strong keyword match but a weak
     vector match (or vice versa) still make the final cut.
     """
+
     def chunk_key(chunk: dict) -> tuple:
         metadata = chunk["metadata"]
         return (metadata.get("source_filename"), metadata.get("chunk_index"))
@@ -353,7 +347,5 @@ def query_collection(
 
     retrieved = _reciprocal_rank_fusion(vector_results, keyword_results, n_results)
 
-    logger.info(
-        f"Retrieved {len(retrieved)} chunks (hybrid) for query: '{query_text[:60]}...'"
-    )
+    logger.info(f"Retrieved {len(retrieved)} chunks (hybrid) for query: '{query_text[:60]}...'")
     return retrieved

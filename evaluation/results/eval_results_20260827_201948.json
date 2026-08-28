@@ -1,0 +1,67 @@
+{
+  "timestamp": "20260827_201948",
+  "total_questions": 8,
+  "scores": {
+    "faithfulness": 0.6818,
+    "answer_relevancy": 0.9716,
+    "context_precision": 0.6841
+  },
+  "per_question": [
+    {
+      "question": "What is a deviation in MISRA compliance?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "A deviation in MISRA compliance refers to a situation where a guideline is violated during a project. Deviations are sometimes unavoidable, and a claim of compliance can only be meaningful when these ...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What are the two categories of MISRA guidelines?",
+      "category": "classification",
+      "has_answer": true,
+      "answer_preview": "The two categories of MISRA guidelines are \"Rules\" and \"Directives.\" A rule imposes requirements on the source code that are complete, objective, unambiguous, and independent of any process, design do...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What is a violation in the context of MISRA compliance?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "A violation in the context of MISRA compliance refers to instances where the guidelines are not adhered to within a project. There are different levels of compliance that can be claimed based on the p...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What is required to claim MISRA compliance for a software component?",
+      "category": "process",
+      "has_answer": true,
+      "answer_preview": "To claim MISRA compliance for a software component, the following requirements must be met:\n\n1. Development must be conducted in accordance with the process and principles described in the MISRA docum...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What is a permit in MISRA compliance?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "A permit in MISRA compliance refers to a deviation permit, which allows for certain violations of the MISRA guidelines under specific circumstances. Deviation permits may originate from various source...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "Can a mandatory MISRA guideline be deviated from?",
+      "category": "process",
+      "has_answer": true,
+      "answer_preview": "No, a Mandatory guideline may not be violated under any circumstances, meaning it cannot be deviated from [Source: MISRA-Compliance-2020.pdf, page 23]....",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What should a MISRA compliance summary document contain?",
+      "category": "process",
+      "has_answer": true,
+      "answer_preview": "A MISRA compliance summary document should contain the following:\n\n1. The guideline compliance summary, declaring the level of compliance which is being claimed.\n2. Details of all approved deviation p...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What is the difference between a guideline and a rule in MISRA?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "A guideline in MISRA is a general term that encompasses both rules and directives. A rule is a specific type of guideline that imposes complete, objective, unambiguous requirements on the source code,...",
+      "contexts_retrieved": 8
+    }
+  ]
+}

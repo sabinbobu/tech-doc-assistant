@@ -147,7 +147,12 @@ This project exposes three MCP tools that any MCP-compatible client (Claude Desk
 
 ### Connect to Claude Desktop
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+**Step 1:** Find your Claude Desktop config file.
+
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+**Step 2:** Add the MCP server entry, using the absolute path to this project:
 
 ```json
 {
@@ -160,14 +165,34 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
         "python", "src/mcp_server/server.py"
       ],
       "env": {
-        "OPENAI_API_KEY": "your-key-here"
+        "OPENAI_API_KEY": "your-key-here",
+        "ANTHROPIC_API_KEY": "your-key-here"
       }
     }
   }
 }
 ```
 
-Restart Claude Desktop. You can now ask Claude to query your documentation directly.
+**Step 3:** Fully quit and reopen Claude Desktop. You should see a 🔧 icon in the chat interface
+indicating MCP tools are available.
+
+**Step 4:** Test it — type in Claude Desktop:
+
+```
+Check if my documentation assistant is ready, then ask it what a deviation is in MISRA compliance.
+```
+
+Claude will automatically call `docs_status` then `docs_ask` and return a cited answer from your
+local document.
+
+### Testing the server manually
+
+```bash
+uv run python src/mcp_server/server.py
+```
+
+You should see `MCP server starting — connecting to ChromaDB...` followed by
+`ChromaDB ready — XXXX chunks indexed`. Press Ctrl+C to stop.
 
 ---
 
@@ -236,4 +261,4 @@ RAG answers should be deterministic and factual. Same question should give same 
 | `EMBEDDING_MODEL` | No | `text-embedding-3-small` | Embedding model |
 | `CHUNK_SIZE` | No | `1000` | Characters per chunk |
 | `CHUNK_OVERLAP` | No | `200` | Overlap between chunks |
-| `RETRIEVAL_TOP_K` | No | `5` | Chunks retrieved per query |
+| `RETRIEVAL_TOP_K` | No | `8` | Chunks retrieved per query |

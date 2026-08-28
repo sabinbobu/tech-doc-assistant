@@ -14,11 +14,21 @@ class RetrievedContext(BaseModel):
     A single retrieved chunk with its relevance score.
     Bridges the retrieval module output into the generation module.
     """
+
     text: str = Field(description="The chunk text")
     citation: str = Field(description="Human-readable source citation")
     page_number: int = Field(description="Source page number")
     source_filename: str = Field(description="Source document filename")
     distance: float = Field(description="Similarity distance — lower is more relevant")
+    rerank_score: float | None = Field(
+        default=None,
+        description=(
+            "Cross-encoder relevance score (higher is more relevant) — see "
+            "src/retrieval/rerank.py. None when reranking is disabled or the "
+            "model failed to load; sources are still returned, just in "
+            "hybrid search's own order in that case."
+        ),
+    )
 
 
 class Answer(BaseModel):
@@ -32,6 +42,7 @@ class Answer(BaseModel):
     this model is part of your answer: you structurally enforce that every
     answer carries its source context.
     """
+
     question: str = Field(description="The original user question")
     answer: str = Field(description="LLM-generated answer based on retrieved context")
     sources: list[RetrievedContext] = Field(description="Chunks used to generate the answer")

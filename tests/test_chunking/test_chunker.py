@@ -11,12 +11,11 @@ import pytest
 
 from src.chunking.chunker import ChunkingConfig, chunk_document, get_chunk_stats
 from src.chunking.cleaner import clean_document, detect_repeating_lines
-from src.chunking.models import Chunk
 from src.ingestion.models import DocumentContent, PageContent
-
 
 # ── Fixtures ──
 # Reusable test data — like test vectors in embedded unit testing
+
 
 @pytest.fixture
 def document_with_footers() -> DocumentContent:
@@ -24,7 +23,10 @@ def document_with_footers() -> DocumentContent:
     pages = [
         PageContent(
             page_number=i,
-            text=f"This is the content of page {i}.\nIt has some meaningful text.\n\nMISRA Compliance 2020\n© MISRA Ltd\n{i}",
+            text=(
+                f"This is the content of page {i}.\nIt has some meaningful text.\n\n"
+                f"MISRA Compliance 2020\n© MISRA Ltd\n{i}"
+            ),
         )
         for i in range(1, 11)  # 10 pages
     ]
@@ -43,14 +45,14 @@ def clean_document_fixture() -> DocumentContent:
         PageContent(
             page_number=1,
             text="Rule 8.4: A compatible declaration shall be visible.\n\n"
-                 "This rule requires that when an object or function is defined, "
-                 "a compatible declaration is visible at the point of definition.",
+            "This rule requires that when an object or function is defined, "
+            "a compatible declaration is visible at the point of definition.",
         ),
         PageContent(
             page_number=2,
             text="Rule 8.5: An external object or function shall be declared once.\n\n"
-                 "Declaring an external object or function in more than one file "
-                 "can lead to inconsistencies between the declarations.",
+            "Declaring an external object or function in more than one file "
+            "can lead to inconsistencies between the declarations.",
         ),
     ]
     return DocumentContent(
@@ -63,8 +65,8 @@ def clean_document_fixture() -> DocumentContent:
 
 # ── Tests for header/footer detection ──
 
-class TestDetectRepeatingLines:
 
+class TestDetectRepeatingLines:
     def test_detects_footer_on_all_pages(self, document_with_footers):
         """Lines present on every page should be detected as headers/footers."""
         repeating = detect_repeating_lines(document_with_footers, threshold=0.4)
@@ -80,8 +82,7 @@ class TestDetectRepeatingLines:
     def test_empty_document_returns_empty_set(self):
         """Should handle empty documents gracefully."""
         empty_doc = DocumentContent(
-            filename="empty.pdf", filepath="/tmp/empty.pdf",
-            total_pages=0, pages=[]
+            filename="empty.pdf", filepath="/tmp/empty.pdf", total_pages=0, pages=[]
         )
         result = detect_repeating_lines(empty_doc)
         assert result == set()
@@ -98,8 +99,8 @@ class TestDetectRepeatingLines:
 
 # ── Tests for document cleaning ──
 
-class TestCleanDocument:
 
+class TestCleanDocument:
     def test_removes_footers(self, document_with_footers):
         """Cleaning should remove detected footers from all pages."""
         cleaned = clean_document(document_with_footers, threshold=0.4)
@@ -128,8 +129,8 @@ class TestCleanDocument:
 
 # ── Tests for chunker ──
 
-class TestChunkDocument:
 
+class TestChunkDocument:
     def test_produces_chunks(self, clean_document_fixture):
         """Should produce at least one chunk from a non-empty document."""
         chunks = chunk_document(clean_document_fixture)
@@ -160,8 +161,9 @@ class TestChunkDocument:
         chunks = chunk_document(clean_document_fixture, config)
         tolerance = 50  # allow 50 chars over limit for natural boundaries
         for chunk in chunks:
-            assert chunk.char_count <= config.chunk_size + tolerance, \
+            assert chunk.char_count <= config.chunk_size + tolerance, (
                 f"Chunk too large: {chunk.char_count} chars"
+            )
 
     def test_citation_format(self, clean_document_fixture):
         """Citation property should return readable source string."""
@@ -172,8 +174,8 @@ class TestChunkDocument:
 
 # ── Tests for chunk stats ──
 
-class TestGetChunkStats:
 
+class TestGetChunkStats:
     def test_stats_on_empty_list(self):
         """Should handle empty chunk list gracefully."""
         stats = get_chunk_stats([])
