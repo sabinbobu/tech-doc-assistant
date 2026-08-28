@@ -32,6 +32,7 @@ from src.embedding.vector_store import (
     embed_chunks,
     get_chroma_client,
     list_indexed_documents,
+    save_document_outline,
 )
 from src.ingestion.pdf_reader import extract_all_pdfs
 
@@ -86,6 +87,7 @@ def main() -> None:
         stats = get_chunk_stats(chunks)
         logger.info(f"{doc.filename}: {stats}")
         embed_chunks(chunks)
+        save_document_outline(cleaned)
 
     print("\nDone. Final collection:")
     for indexed in list_indexed_documents():

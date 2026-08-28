@@ -142,12 +142,14 @@ def clean_document(document: DocumentContent, threshold: float = 0.4) -> Documen
     cleaned_pages = [clean_page(page, repeating_lines) for page in document.pages]
 
     # Step 3: Return a new document with cleaned pages
-    # total_pages stays the same — we didn't remove pages, just noise within them
+    # total_pages stays the same — we didn't remove pages, just noise within them.
+    # outline carries over unchanged — cleaning touches page text, not structure.
     cleaned_doc = DocumentContent(
         filename=document.filename,
         filepath=document.filepath,
         total_pages=document.total_pages,
         pages=cleaned_pages,
+        outline=document.outline,
     )
 
     original_chars = sum(len(p.text) for p in document.pages)

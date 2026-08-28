@@ -22,7 +22,10 @@ ChromaDB is your data logger — stores those readings with timestamps
 (metadata) so you can query them later.
 """
 
+import json
 import logging
+import re
+from pathlib import Path
 
 import chromadb
 from chromadb.utils import embedding_functions
@@ -30,12 +33,15 @@ from rank_bm25 import BM25Okapi
 
 from src.chunking.models import Chunk
 from src.config import settings
+from src.ingestion.models import DocumentContent, OutlineEntry
 
 logger = logging.getLogger(__name__)
 
 # Name of the collection inside ChromaDB
 # Think of a collection like a table in SQL — groups related vectors together
 COLLECTION_NAME = "tech_docs"
+
+# Where per-document outlines are persisted — see save_document_outline().
 
 
 def get_chroma_client() -> chromadb.PersistentClient:
@@ -114,6 +120,10 @@ def embed_chunks(chunks: list[Chunk]) -> None:
             "page_number": chunk.page_number,
             "chunk_index": chunk.chunk_index,
             "citation": chunk.citation,
+            # None (no outline, or a page before the first outline entry)
+            # is silently dropped by Chroma rather than stored or rejected —
+            # downstream .get("section") still correctly returns None.
+            "section": chunk.section,
         }
         for chunk in chunks
     ]
@@ -176,6 +186,56 @@ def list_indexed_documents() -> list[dict]:
     return [
         {"filename": filename, "chunk_count": count} for filename, count in sorted(counts.items())
     ]
+
+
+def _outline_path(filename: str) -> Path:
+    """
+    Filesystem path for a document's persisted outline.
+
+    WHY A SIDECAR FILE, NOT A CHROMA RECORD:
+    A document's outline (DocumentContent.outline) only exists in memory
+    during ingestion — Chunk stores just its own section title, not the
+    whole tree. A structural question like "list the TOC" asked long after
+    ingestion needs the tree back. Storing it in Chroma as a fake "chunk"
+    would pollute hybrid search (a JSON blob would show up as a nonsense
+    BM25/vector match); a plain JSON file next to the vector store keeps
+    structural metadata cleanly separate from the search index, and reuses
+    settings.vectorstore_dir rather than inventing a new configured path.
+    """
+    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", filename)
+    outlines_dir = settings.vectorstore_dir / "outlines"
+    outlines_dir.mkdir(parents=True, exist_ok=True)
+    return outlines_dir / f"{safe_name}.json"
+
+
+def save_document_outline(document: DocumentContent) -> None:
+    """
+    Persist a document's outline so it survives past the ingestion call.
+
+    A no-op (writes an empty list) for documents with no outline — callers
+    don't need to check first. Called once per document, alongside
+    embed_chunks(), by every ingestion entry point (scripts/reingest.py,
+    src/ui/app.py's upload flow).
+    """
+    path = _outline_path(document.filename)
+    payload = [entry.model_dump() for entry in document.outline]
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    logger.info(f"Saved outline for '{document.filename}': {len(payload)} entries")
+
+
+def load_document_outline(filename: str) -> list[OutlineEntry] | None:
+    """
+    Load a previously-saved outline for a document.
+
+    Returns None if this document was never ingested with an outline saved
+    (predates this feature, or genuinely has no embedded outline) — callers
+    should treat that as "no structure available", not an error.
+    """
+    path = _outline_path(filename)
+    if not path.exists():
+        return None
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    return [OutlineEntry(**entry) for entry in raw]
 
 
 def _vector_search(

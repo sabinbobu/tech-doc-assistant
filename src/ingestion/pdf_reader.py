@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pymupdf as fitz
 
-from src.ingestion.models import DocumentContent, PageContent
+from src.ingestion.models import DocumentContent, OutlineEntry, PageContent
 
 logger = logging.getLogger(__name__)
 
@@ -91,15 +91,49 @@ def extract_text_from_pdf(
                 logger.debug(f"Skipping empty page {page_num}")
 
         total_pages = len(doc)
+        outline = _extract_outline(doc)
 
     logger.info(f"Extracted {len(pages)} non-empty pages from {total_pages} total pages")
+    if outline:
+        logger.info(f"Found {len(outline)} outline entries")
 
     return DocumentContent(
         filename=display_name or filepath.name,
         filepath=str(filepath),
         total_pages=total_pages,
         pages=pages,
+        outline=outline,
     )
+
+
+def _extract_outline(doc: fitz.Document) -> list[OutlineEntry]:
+    """
+    Read the PDF's embedded outline (bookmarks), if it has one.
+
+    Most professionally-produced technical PDFs — datasheets, standards,
+    user guides — embed one; it's the structure the author already built,
+    not something we have to reconstruct from prose. Many PDFs have none at
+    all (scans, ad-hoc documents), which is completely normal — an empty
+    outline is not an ingestion failure, just a document this feature can't
+    help with.
+
+    doc.get_toc() entries are [level, title, page] with page already
+    1-indexed, matching PageContent.page_number. Entries with page < 1
+    (pymupdf's marker for a destination it couldn't resolve) are dropped —
+    they're not a citable location and would corrupt
+    DocumentContent.section_for_page's page-ordering assumption.
+    """
+    try:
+        raw_toc = doc.get_toc()
+    except Exception:
+        logger.debug("Could not read outline — treating as a document with none")
+        return []
+
+    return [
+        OutlineEntry(level=level, title=title, page=page)
+        for level, title, page in raw_toc
+        if page >= 1
+    ]
 
 
 def _clean_page_text(text: str) -> str:

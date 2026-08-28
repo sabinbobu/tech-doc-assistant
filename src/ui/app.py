@@ -37,6 +37,7 @@ from src.embedding.vector_store import (
     get_chroma_client,
     get_or_create_collection,
     list_indexed_documents,
+    save_document_outline,
 )
 from src.generation.generator import generate_answer
 from src.ingestion.pdf_reader import extract_text_from_pdf
@@ -88,6 +89,7 @@ def run_ingestion_pipeline(pdf_path: str, display_name: str | None = None) -> di
     chunks = chunk_document(cleaned)
     stats = get_chunk_stats(chunks)
     embed_chunks(chunks)
+    save_document_outline(cleaned)
     return {
         "filename": doc.filename,
         "pages": len(doc.pages),

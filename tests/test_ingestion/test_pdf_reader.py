@@ -17,7 +17,7 @@ We use pytest because it's the Python standard (like Unity for embedded C testin
 import pytest
 from pydantic import ValidationError
 
-from src.ingestion.models import DocumentContent, PageContent
+from src.ingestion.models import DocumentContent, OutlineEntry, PageContent
 from src.ingestion.pdf_reader import _clean_page_text
 
 # ── Tests for data models ──
@@ -228,3 +228,87 @@ class TestExtractTextFromPdf:
         result = extract_text_from_pdf(pdf_path)
 
         assert result.filename == "MISRA-Compliance-2020.pdf"
+
+    def test_extracts_outline_when_pdf_has_one(self, tmp_path):
+        """Most professionally-produced technical PDFs (datasheets,
+        standards, user guides) embed bookmarks/outline. We read it rather
+        than reconstruct structure from prose — verified against real
+        vendor PDFs (Infineon: 79 entries, MISRA: 55, Epson: 185), this test
+        exercises the same fitz API against a throwaway one."""
+        import pymupdf as fitz
+
+        from src.ingestion.pdf_reader import extract_text_from_pdf
+
+        pdf_path = tmp_path / "with_outline.pdf"
+        doc = fitz.open()
+        for _ in range(3):
+            page = doc.new_page()
+            page.insert_text((72, 72), "content")
+        doc.set_toc([[1, "1 Overview", 1], [2, "1.1 Details", 1], [1, "2 Configuration", 3]])
+        doc.save(pdf_path)
+        doc.close()
+
+        result = extract_text_from_pdf(pdf_path)
+
+        assert result.outline == [
+            OutlineEntry(level=1, title="1 Overview", page=1),
+            OutlineEntry(level=2, title="1.1 Details", page=1),
+            OutlineEntry(level=1, title="2 Configuration", page=3),
+        ]
+
+    def test_empty_outline_when_pdf_has_none(self, tmp_path):
+        """Scans and ad-hoc documents commonly have no embedded outline —
+        that's normal, not an ingestion failure. Every existing caller of
+        extract_text_from_pdf must keep working unchanged."""
+        import pymupdf as fitz
+
+        from src.ingestion.pdf_reader import extract_text_from_pdf
+
+        pdf_path = tmp_path / "no_outline.pdf"
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((72, 72), "content")
+        doc.save(pdf_path)
+        doc.close()
+
+        result = extract_text_from_pdf(pdf_path)
+
+        assert result.outline == []
+
+
+class TestSectionForPage:
+    """Tests for DocumentContent.section_for_page — the deepest outline
+    entry applicable to a given page."""
+
+    def _doc(self, outline_tuples: list[tuple[int, str, int]]) -> DocumentContent:
+        return DocumentContent(
+            filename="test.pdf",
+            filepath="/path/to/test.pdf",
+            total_pages=20,
+            pages=[],
+            outline=[OutlineEntry(level=lv, title=t, page=p) for lv, t, p in outline_tuples],
+        )
+
+    def test_resolves_to_deepest_applicable_section(self):
+        """A page inside a subsection resolves to that subsection, not just
+        its parent chapter — this is the whole point of walking document
+        order instead of taking the nearest top-level entry."""
+        doc = self._doc(
+            [(1, "3 Pin Configuration", 5), (2, "3.1 Pin Configuration", 5), (1, "4 Electrical", 8)]
+        )
+        assert doc.section_for_page(6) == "3.1 Pin Configuration"
+
+    def test_page_before_any_outline_entry_returns_none(self):
+        """A cover page or title page before "1 Introduction" has no
+        section — this is a real case (MISRA-Compliance-2020.pdf's page 1,
+        verified against the live document)."""
+        doc = self._doc([(1, "1 Introduction", 9)])
+        assert doc.section_for_page(1) is None
+
+    def test_empty_outline_returns_none(self):
+        doc = self._doc([])
+        assert doc.section_for_page(5) is None
+
+    def test_page_exactly_at_a_new_chapter_boundary(self):
+        doc = self._doc([(1, "3 Pin Configuration", 5), (1, "4 Electrical", 8)])
+        assert doc.section_for_page(8) == "4 Electrical"
