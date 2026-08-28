@@ -76,6 +76,50 @@ class Settings(BaseSettings):
     # Like "top N search results" — too few misses context, too many adds noise
     retrieval_top_k: int = 8
 
+    # How many candidates to pull from hybrid search BEFORE reranking.
+    # Must be >= retrieval_top_k — the reranker can only pick from what it's
+    # handed. Wider than top_k on purpose: RRF's top-8 by rank isn't
+    # necessarily the reranker's top-8 by actual relevance, so we give it a
+    # bigger pool to re-sort. Like oversampling an ADC before decimating —
+    # you want more raw samples than your final output rate.
+    retrieval_candidate_k: int = 20
+
+    # Cross-encoder model for reranking. Runs locally via sentence-transformers,
+    # no API key, no network call per query (one-time download on first use).
+    #
+    # Benchmarked on this project's dev machine (Intel Mac, CPU-only torch —
+    # see pyproject.toml's required-environments): BAAI/bge-reranker-v2-m3
+    # (568M params) took 11.7s to score 30 candidates — unusable in an
+    # interactive app. ms-marco-MiniLM-L6-v2 (22M params) does the same job
+    # in ~1s with no meaningful quality loss for this corpus's English,
+    # short-passage technical documents. Bigger cross-encoders earn their
+    # cost on harder ranking problems; this one doesn't need it.
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L6-v2"
+
+    # Kill switch — if the reranker model fails to load (e.g. torch not
+    # installed, offline environment), retrieval must still work. Set False
+    # to skip reranking and use the hybrid search order as-is.
+    reranking_enabled: bool = True
+
+    # Rewrite the user's question into a cleaner search query before it hits
+    # the index — see src/retrieval/query_rewrite.py.
+    #
+    # Defaults OFF, unlike reranking_enabled. Measured on this project's own
+    # RAGAS eval (see CLAUDE.md-equivalent history / eval_results_*.json):
+    # enabling it dropped faithfulness 0.815 -> 0.682 and flipped a
+    # previously-correct answer ("what are the two categories of MISRA
+    # guidelines" -> Mandatory/Advisory) to a wrong-but-plausible one
+    # (Rules/Directives) by stripping question-framing context the rewrite
+    # prompt didn't preserve. The code and tests are real and working; it
+    # just doesn't have evidence to justify shipping active. Re-evaluate once
+    # a larger eval set (Phase 2) can resolve small-sample swings properly.
+    query_rewrite_enabled: bool = False
+
+    # Model used for the rewrite call. None reuses llm_model (same provider,
+    # same model as answer generation) — rewriting is a much simpler task
+    # than generation, so a cheaper/faster model of the same provider is a
+    # reasonable override once you have real latency numbers to justify it.
+    rewrite_model: str | None = None
 
 # Singleton pattern — one settings instance for the whole app
 # In C terms, this is like a global config struct initialized once at startup

@@ -57,6 +57,7 @@ def collect_rag_outputs(dataset: list[dict]) -> list[dict]:
     - ground_truth (from your dataset)
     """
     # Import here to avoid circular imports and to fail fast if pipeline broken
+    from src.config import settings
     from src.embedding.vector_store import query_collection
     from src.generation.generator import generate_answer
 
@@ -66,12 +67,15 @@ def collect_rag_outputs(dataset: list[dict]) -> list[dict]:
         question = item["question"]
         logger.info(f"Processing question {i}/{len(dataset)}: '{question[:60]}...'")
 
-        # Run retrieval to get the actual contexts used
-        raw_chunks = query_collection(question, n_results=5)
+        # Use settings.retrieval_top_k for both calls, not a hardcoded number —
+        # otherwise this eval silently drifts from what the app actually
+        # retrieves whenever retrieval_top_k changes, and worse, the two calls
+        # could disagree with each other on how many chunks to use.
+        raw_chunks = query_collection(question, n_results=settings.retrieval_top_k)
         contexts = [chunk["text"] for chunk in raw_chunks]
 
-        # Run full generation
-        answer_obj = generate_answer(question, n_results=5)
+        # Run full generation (defaults to settings.retrieval_top_k internally)
+        answer_obj = generate_answer(question)
 
         samples.append({
             "question": question,

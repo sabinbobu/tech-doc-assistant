@@ -25,6 +25,8 @@ from src.config import settings
 from src.embedding.vector_store import query_collection
 from src.generation.models import Answer, RetrievedContext
 from src.generation.prompts import SYSTEM_PROMPT, build_user_prompt
+from src.retrieval.query_rewrite import rewrite_query
+from src.retrieval.rerank import rerank
 
 logger = logging.getLogger(__name__)
 
@@ -57,10 +59,24 @@ def generate_answer(
     if n_results is None:
         n_results = settings.retrieval_top_k
 
-    # ── Step 1: Retrieve relevant chunks ──
-    logger.info(f"Retrieving context for: '{question}'")
+    # ── Step 1: Rewrite the question into a search query ──
+    # The index doesn't care about grammar — BM25 rewards term overlap, and
+    # this corpus is dense with identifiers (rule numbers, "Mandatory" vs
+    # "Advisory") that a short keyword query matches better than a full
+    # question's prose does. `question` itself is untouched — the LLM prompt
+    # and citations always use what the user actually asked.
+    search_query, _identifiers = rewrite_query(question)
+
+    # ── Step 2: Retrieve a candidate pool ──
+    # Fetch more than we need (settings.retrieval_candidate_k) so reranking
+    # has something to actually re-sort — hybrid search's rank-60 fusion order
+    # isn't necessarily the cross-encoder's relevance order, so a chunk that
+    # placed #15 by RRF might belong in the final top n_results after a model
+    # actually reads it against the question.
+    candidate_k = max(settings.retrieval_candidate_k, n_results)
+    logger.info(f"Retrieving context for: '{question}' (search query: '{search_query}')")
     raw_chunks = query_collection(
-        question, n_results=n_results, source_filenames=source_filenames
+        search_query, n_results=candidate_k, source_filenames=source_filenames
     )
 
     if not raw_chunks:
@@ -71,10 +87,16 @@ def generate_answer(
             has_answer=False,
         )
 
-    # ── Step 2: Build prompt ──
+    # ── Step 3: Rerank down to the final top-k ──
+    # Reranked against the original `question`, not `search_query` — the
+    # cross-encoder reads natural language well (it's what it's trained on),
+    # unlike BM25/embeddings where a terse keyword query helps.
+    raw_chunks = rerank(question, raw_chunks, top_k=n_results)
+
+    # ── Step 4: Build prompt ──
     user_prompt = build_user_prompt(question, raw_chunks)
 
-    # ── Step 3: Call LLM ──
+    # ── Step 5: Call LLM ──
     logger.info(f"Generating answer with {settings.llm_provider}/{settings.llm_model}")
     try:
         answer_text = _call_llm(user_prompt)
@@ -83,7 +105,7 @@ def generate_answer(
             f"LLM call failed ({settings.llm_provider}/{settings.llm_model}): {exc}"
         ) from exc
 
-    # ── Step 4: Package into Answer with sources ──
+    # ── Step 6: Package into Answer with sources ──
     sources = [
         RetrievedContext(
             text=chunk["text"],
@@ -91,6 +113,7 @@ def generate_answer(
             page_number=chunk["metadata"].get("page_number", 0),
             source_filename=chunk["metadata"].get("source_filename", "Unknown"),
             distance=chunk["distance"],
+            rerank_score=chunk.get("rerank_score"),
         )
         for chunk in raw_chunks
     ]
