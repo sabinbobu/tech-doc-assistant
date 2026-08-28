@@ -6,15 +6,14 @@ This lets us test our logic (prompt building, answer packaging,
 has_answer detection) without network calls or API costs.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from src.config import settings
 from src.generation.generator import generate_answer
 from src.generation.models import Answer
-from src.generation.prompts import build_user_prompt, SYSTEM_PROMPT
-
+from src.generation.prompts import build_user_prompt
 
 # ── Fixtures ──
 
@@ -24,7 +23,10 @@ def sample_raw_chunks() -> list[dict]:
     """Simulates what query_collection() returns."""
     return [
         {
-            "text": "A deviation is a process by which a project may use a guideline differently from how it is specified.",
+            "text": (
+                "A deviation is a process by which a project may use a guideline "
+                "differently from how it is specified."
+            ),
             "metadata": {
                 "citation": "MISRA-Compliance-2020.pdf, page 14",
                 "page_number": 14,

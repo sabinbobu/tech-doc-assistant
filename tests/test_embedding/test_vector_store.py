@@ -23,7 +23,6 @@ import pytest
 from src.chunking.models import Chunk
 from src.embedding.vector_store import embed_chunks, list_indexed_documents, query_collection
 
-
 # ── Fixtures ──
 
 
@@ -41,7 +40,10 @@ def sample_chunks() -> list[Chunk]:
             end_char=80,
         ),
         Chunk(
-            text="Rule 8.5: An external object or function shall be declared in one and only one file.",
+            text=(
+                "Rule 8.5: An external object or function shall be declared "
+                "in one and only one file."
+            ),
             source_filename="misra.pdf",
             source_filepath="/tmp/misra.pdf",
             page_number=24,

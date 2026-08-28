@@ -24,8 +24,8 @@ CONNECT TO CLAUDE DESKTOP:
 
 import json
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field

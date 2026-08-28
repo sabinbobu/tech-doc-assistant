@@ -15,10 +15,10 @@ We use pytest because it's the Python standard (like Unity for embedded C testin
 """
 
 import pytest
+from pydantic import ValidationError
 
 from src.ingestion.models import DocumentContent, PageContent
 from src.ingestion.pdf_reader import _clean_page_text
-
 
 # ── Tests for data models ──
 # These test that our "structs" behave correctly
@@ -37,7 +37,7 @@ class TestPageContent:
         """Pydantic should reject invalid types — runtime type safety."""
         # This would crash in C if you passed a string to a uint8_t field.
         # Pydantic catches it at construction time.
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             PageContent(page_number="not a number", text="Hello")
 
 

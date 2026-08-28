@@ -23,11 +23,9 @@ ChromaDB is your data logger — stores those readings with timestamps
 """
 
 import logging
-from pathlib import Path
 
 import chromadb
 from chromadb.utils import embedding_functions
-from langchain_openai import OpenAIEmbeddings
 from rank_bm25 import BM25Okapi
 
 from src.chunking.models import Chunk

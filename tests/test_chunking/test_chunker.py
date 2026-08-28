@@ -11,9 +11,7 @@ import pytest
 
 from src.chunking.chunker import ChunkingConfig, chunk_document, get_chunk_stats
 from src.chunking.cleaner import clean_document, detect_repeating_lines
-from src.chunking.models import Chunk
 from src.ingestion.models import DocumentContent, PageContent
-
 
 # ── Fixtures ──
 # Reusable test data — like test vectors in embedded unit testing
@@ -25,7 +23,10 @@ def document_with_footers() -> DocumentContent:
     pages = [
         PageContent(
             page_number=i,
-            text=f"This is the content of page {i}.\nIt has some meaningful text.\n\nMISRA Compliance 2020\n© MISRA Ltd\n{i}",
+            text=(
+                f"This is the content of page {i}.\nIt has some meaningful text.\n\n"
+                f"MISRA Compliance 2020\n© MISRA Ltd\n{i}"
+            ),
         )
         for i in range(1, 11)  # 10 pages
     ]

@@ -27,12 +27,11 @@ in the ECU firmware underneath.
 
 import logging
 import tempfile
-from pathlib import Path
 
 import streamlit as st
 
-from src.chunking.cleaner import clean_document
 from src.chunking.chunker import chunk_document, get_chunk_stats
+from src.chunking.cleaner import clean_document
 from src.embedding.vector_store import (
     embed_chunks,
     get_chroma_client,
