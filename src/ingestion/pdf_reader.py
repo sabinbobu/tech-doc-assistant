@@ -92,9 +92,7 @@ def extract_text_from_pdf(
 
         total_pages = len(doc)
 
-    logger.info(
-        f"Extracted {len(pages)} non-empty pages from {total_pages} total pages"
-    )
+    logger.info(f"Extracted {len(pages)} non-empty pages from {total_pages} total pages")
 
     return DocumentContent(
         filename=display_name or filepath.name,

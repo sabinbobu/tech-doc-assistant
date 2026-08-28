@@ -106,10 +106,7 @@ def clean_page(page: PageContent, lines_to_remove: set[str]) -> PageContent:
         New PageContent with headers/footers removed.
     """
     lines = page.text.split("\n")
-    cleaned_lines = [
-        line for line in lines
-        if line.strip() not in lines_to_remove
-    ]
+    cleaned_lines = [line for line in lines if line.strip() not in lines_to_remove]
     cleaned_text = "\n".join(cleaned_lines).strip()
 
     return PageContent(
@@ -142,10 +139,7 @@ def clean_document(document: DocumentContent, threshold: float = 0.4) -> Documen
         return document
 
     # Step 2: Clean each page
-    cleaned_pages = [
-        clean_page(page, repeating_lines)
-        for page in document.pages
-    ]
+    cleaned_pages = [clean_page(page, repeating_lines) for page in document.pages]
 
     # Step 3: Return a new document with cleaned pages
     # total_pages stays the same — we didn't remove pages, just noise within them

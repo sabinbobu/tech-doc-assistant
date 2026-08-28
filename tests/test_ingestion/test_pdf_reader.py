@@ -23,6 +23,7 @@ from src.ingestion.pdf_reader import _clean_page_text
 # ── Tests for data models ──
 # These test that our "structs" behave correctly
 
+
 class TestPageContent:
     """Tests for the PageContent model."""
 
@@ -102,6 +103,7 @@ class TestDocumentContent:
 # ── Tests for text cleaning ──
 # These verify our "noise filtering" works correctly
 
+
 class TestCleanPageText:
     """Tests for the _clean_page_text helper function."""
 
@@ -145,6 +147,7 @@ class TestCleanPageText:
 
 # ── Tests for PDF reader function ──
 # These test the actual file I/O
+
 
 class TestExtractTextFromPdf:
     """Tests for extract_text_from_pdf function.

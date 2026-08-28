@@ -50,9 +50,7 @@ class TestRewriteQuery:
         assert identifiers == []
 
     def test_malformed_json_falls_back_to_original_question(self):
-        with patch.object(
-            query_rewrite_module, "_call_llm", return_value="not valid json at all"
-        ):
+        with patch.object(query_rewrite_module, "_call_llm", return_value="not valid json at all"):
             search_query, identifiers = rewrite_query("What is a deviation?")
 
         assert search_query == "What is a deviation?"
@@ -71,9 +69,7 @@ class TestRewriteQuery:
         assert identifiers == []
 
     def test_llm_exception_falls_back_to_original_question(self):
-        with patch.object(
-            query_rewrite_module, "_call_llm", side_effect=RuntimeError("API down")
-        ):
+        with patch.object(query_rewrite_module, "_call_llm", side_effect=RuntimeError("API down")):
             search_query, identifiers = rewrite_query("What is a deviation?")
 
         assert search_query == "What is a deviation?"

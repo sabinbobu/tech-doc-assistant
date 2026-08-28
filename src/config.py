@@ -31,9 +31,9 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",        # Load from .env file if present
+        env_file=".env",  # Load from .env file if present
         env_file_encoding="utf-8",
-        extra="ignore",         # Don't crash on unknown env vars
+        extra="ignore",  # Don't crash on unknown env vars
     )
 
     # ── Paths ──
@@ -120,6 +120,7 @@ class Settings(BaseSettings):
     # than generation, so a cheaper/faster model of the same provider is a
     # reasonable override once you have real latency numbers to justify it.
     rewrite_model: str | None = None
+
 
 # Singleton pattern — one settings instance for the whole app
 # In C terms, this is like a global config struct initialized once at startup

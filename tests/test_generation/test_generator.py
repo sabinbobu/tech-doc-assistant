@@ -18,6 +18,7 @@ from src.generation.prompts import build_user_prompt, SYSTEM_PROMPT
 
 # ── Fixtures ──
 
+
 @pytest.fixture
 def sample_raw_chunks() -> list[dict]:
     """Simulates what query_collection() returns."""
@@ -45,8 +46,8 @@ def sample_raw_chunks() -> list[dict]:
 
 # ── Tests for prompt building ──
 
-class TestBuildUserPrompt:
 
+class TestBuildUserPrompt:
     def test_includes_question(self, sample_raw_chunks):
         """The question must appear in the prompt."""
         prompt = build_user_prompt("What is a deviation?", sample_raw_chunks)
@@ -73,8 +74,8 @@ class TestBuildUserPrompt:
 
 # ── Tests for generate_answer ──
 
-class TestGenerateAnswer:
 
+class TestGenerateAnswer:
     @pytest.fixture(autouse=True)
     def mock_rerank(self):
         """
@@ -112,7 +113,9 @@ class TestGenerateAnswer:
     def test_returns_answer_object(self, mock_retrieval, mock_llm, sample_raw_chunks):
         """generate_answer should always return an Answer object."""
         mock_retrieval.return_value = sample_raw_chunks
-        mock_llm.return_value = "A deviation is a formal process. [Source: MISRA-Compliance-2020.pdf, page 14]"
+        mock_llm.return_value = (
+            "A deviation is a formal process. [Source: MISRA-Compliance-2020.pdf, page 14]"
+        )
 
         result = generate_answer("What is a deviation?")
 
@@ -132,10 +135,14 @@ class TestGenerateAnswer:
 
     @patch("src.generation.generator._call_llm")
     @patch("src.generation.generator.query_collection")
-    def test_has_answer_false_when_not_in_context(self, mock_retrieval, mock_llm, sample_raw_chunks):
+    def test_has_answer_false_when_not_in_context(
+        self, mock_retrieval, mock_llm, sample_raw_chunks
+    ):
         """has_answer should be False when LLM signals missing information."""
         mock_retrieval.return_value = sample_raw_chunks
-        mock_llm.return_value = "The provided documentation does not contain information about this topic."
+        mock_llm.return_value = (
+            "The provided documentation does not contain information about this topic."
+        )
 
         result = generate_answer("What is the meaning of life?")
 
@@ -299,25 +306,28 @@ class TestGenerateAnswer:
 
 # ── Tests for Answer model ──
 
-class TestAnswerModel:
 
+class TestAnswerModel:
     def test_formatted_sources_deduplicates(self):
         """Same citation appearing twice should appear once in formatted output."""
         from src.generation.models import RetrievedContext
 
         sources = [
             RetrievedContext(
-                text="chunk 1", citation="misra.pdf, page 14",
-                page_number=14, source_filename="misra.pdf", distance=0.1
+                text="chunk 1",
+                citation="misra.pdf, page 14",
+                page_number=14,
+                source_filename="misra.pdf",
+                distance=0.1,
             ),
             RetrievedContext(
-                text="chunk 2", citation="misra.pdf, page 14",  # same citation
-                page_number=14, source_filename="misra.pdf", distance=0.2
+                text="chunk 2",
+                citation="misra.pdf, page 14",  # same citation
+                page_number=14,
+                source_filename="misra.pdf",
+                distance=0.2,
             ),
         ]
-        answer = Answer(
-            question="test", answer="test answer",
-            sources=sources, has_answer=True
-        )
+        answer = Answer(question="test", answer="test answer", sources=sources, has_answer=True)
         formatted = answer.formatted_sources
         assert formatted.count("misra.pdf, page 14") == 1

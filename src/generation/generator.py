@@ -163,8 +163,8 @@ def _call_openai(user_prompt: str) -> str:
             {"role": "user", "content": user_prompt},
         ],
         temperature=0,  # 0 = deterministic — we want consistent, factual answers
-                        # not creative variation. Same query should give same answer.
-                        # Like disabling dithering on your ADC for stable readings.
+        # not creative variation. Same query should give same answer.
+        # Like disabling dithering on your ADC for stable readings.
         max_tokens=1024,
     )
 

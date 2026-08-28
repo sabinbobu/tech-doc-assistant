@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 # Like initializing your peripheral drivers once in main() —
 # not on every function call.
 
+
 @asynccontextmanager
 async def app_lifespan(app) -> AsyncIterator[dict]:
     """Initialize shared resources for the server's lifetime."""
@@ -73,8 +74,10 @@ mcp = FastMCP(
 # If an agent passes an empty query, it's rejected here — not buried
 # in a stack trace inside ChromaDB.
 
+
 class SearchInput(BaseModel):
     """Input for the search_documentation tool."""
+
     model_config = ConfigDict(
         str_strip_whitespace=True,
         extra="forbid",
@@ -82,7 +85,7 @@ class SearchInput(BaseModel):
     query: str = Field(
         ...,
         description="Search query to find relevant documentation passages. "
-                    "Example: 'external linkage rules', 'deviation approval process'",
+        "Example: 'external linkage rules', 'deviation approval process'",
         min_length=3,
         max_length=500,
     )
@@ -96,6 +99,7 @@ class SearchInput(BaseModel):
 
 class AskInput(BaseModel):
     """Input for the ask_documentation tool."""
+
     model_config = ConfigDict(
         str_strip_whitespace=True,
         extra="forbid",
@@ -103,7 +107,7 @@ class AskInput(BaseModel):
     question: str = Field(
         ...,
         description="Natural language question to answer using the documentation. "
-                    "Example: 'What is a deviation in MISRA compliance?'",
+        "Example: 'What is a deviation in MISRA compliance?'",
         min_length=10,
         max_length=500,
     )
@@ -116,6 +120,7 @@ class AskInput(BaseModel):
 
 
 # ── Tools ──
+
 
 @mcp.tool(
     name="docs_search",
@@ -169,10 +174,12 @@ async def docs_search(params: SearchInput) -> str:
         raw_results = rerank(params.query, candidates, top_k=params.n_results)
 
         if not raw_results:
-            return json.dumps({
-                "results": [],
-                "message": "No documents indexed. Run the ingestion pipeline first.",
-            })
+            return json.dumps(
+                {
+                    "results": [],
+                    "message": "No documents indexed. Run the ingestion pipeline first.",
+                }
+            )
 
         # relevance_score: convert distance to a 0-1 score for backward
         # compatibility (Distance is 0-2 for cosine, lower = better;
@@ -191,11 +198,14 @@ async def docs_search(params: SearchInput) -> str:
             for r in raw_results
         ]
 
-        return json.dumps({
-            "query": params.query,
-            "total_results": len(formatted),
-            "results": formatted,
-        }, indent=2)
+        return json.dumps(
+            {
+                "query": params.query,
+                "total_results": len(formatted),
+                "results": formatted,
+            },
+            indent=2,
+        )
 
     except Exception as e:
         logger.error(f"docs_search failed: {e}")
@@ -250,20 +260,23 @@ async def docs_ask(params: AskInput) -> str:
     try:
         answer = generate_answer(params.question, n_results=params.n_results)
 
-        return json.dumps({
-            "question": answer.question,
-            "answer": answer.answer,
-            "has_answer": answer.has_answer,
-            "sources": [
-                {
-                    "citation": s.citation,
-                    "page_number": s.page_number,
-                    "source_filename": s.source_filename,
-                    "relevance_score": round(1 - (s.distance / 2), 3),
-                }
-                for s in answer.sources
-            ],
-        }, indent=2)
+        return json.dumps(
+            {
+                "question": answer.question,
+                "answer": answer.answer,
+                "has_answer": answer.has_answer,
+                "sources": [
+                    {
+                        "citation": s.citation,
+                        "page_number": s.page_number,
+                        "source_filename": s.source_filename,
+                        "relevance_score": round(1 - (s.distance / 2), 3),
+                    }
+                    for s in answer.sources
+                ],
+            },
+            indent=2,
+        )
 
     except Exception as e:
         logger.error(f"docs_ask failed: {e}")
@@ -299,22 +312,27 @@ async def docs_status() -> str:
         collection = get_or_create_collection(client)
         count = collection.count()
 
-        return json.dumps({
-            "ready": count > 0,
-            "indexed_chunks": count,
-            "message": (
-                f"{count} chunks indexed and ready for queries."
-                if count > 0
-                else "No documents indexed. Run the ingestion pipeline first."
-            ),
-        }, indent=2)
+        return json.dumps(
+            {
+                "ready": count > 0,
+                "indexed_chunks": count,
+                "message": (
+                    f"{count} chunks indexed and ready for queries."
+                    if count > 0
+                    else "No documents indexed. Run the ingestion pipeline first."
+                ),
+            },
+            indent=2,
+        )
 
     except Exception as e:
-        return json.dumps({
-            "ready": False,
-            "indexed_chunks": 0,
-            "message": f"Could not connect to vector store: {str(e)}",
-        })
+        return json.dumps(
+            {
+                "ready": False,
+                "indexed_chunks": 0,
+                "message": f"Could not connect to vector store: {str(e)}",
+            }
+        )
 
 
 # ── Entry point ──

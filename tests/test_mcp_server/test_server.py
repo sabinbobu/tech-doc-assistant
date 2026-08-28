@@ -62,9 +62,7 @@ class TestDocsSearchReranking:
             patch("src.mcp_server.server.query_collection", return_value=candidates),
             patch("src.mcp_server.server.rerank", return_value=reranked) as mock_rerank,
         ):
-            result = asyncio.run(
-                docs_search(SearchInput(query="what is a deviation", n_results=2))
-            )
+            result = asyncio.run(docs_search(SearchInput(query="what is a deviation", n_results=2)))
 
         mock_rerank.assert_called_once()
         parsed = json.loads(result)
@@ -81,9 +79,7 @@ class TestDocsSearchReranking:
             patch("src.mcp_server.server.query_collection", return_value=candidates),
             patch("src.mcp_server.server.rerank", return_value=candidates),
         ):
-            result = asyncio.run(
-                docs_search(SearchInput(query="what is a deviation", n_results=1))
-            )
+            result = asyncio.run(docs_search(SearchInput(query="what is a deviation", n_results=1)))
 
         parsed = json.loads(result)
         assert parsed["results"][0]["rerank_score"] is None
@@ -93,9 +89,7 @@ class TestDocsSearchReranking:
             patch("src.mcp_server.server.query_collection", return_value=[]),
             patch("src.mcp_server.server.rerank", return_value=[]),
         ):
-            result = asyncio.run(
-                docs_search(SearchInput(query="what is a deviation", n_results=5))
-            )
+            result = asyncio.run(docs_search(SearchInput(query="what is a deviation", n_results=5)))
 
         parsed = json.loads(result)
         assert parsed["results"] == []

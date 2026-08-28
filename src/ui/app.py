@@ -57,6 +57,7 @@ st.set_page_config(
 
 # ── Helper functions ──
 
+
 def get_document_count() -> int:
     """
     Check how many vectors are stored in ChromaDB.
@@ -160,9 +161,7 @@ with col_sidebar:
             # Save uploaded file to a temp location
             # Streamlit gives us a BytesIO object — we need a real file path
             # for PyMuPDF to open. tempfile handles cleanup automatically.
-            with tempfile.NamedTemporaryFile(
-                delete=False, suffix=".pdf"
-            ) as tmp_file:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                 tmp_file.write(uploaded_file.getvalue())
                 tmp_path = tmp_file.name
 
@@ -182,10 +181,10 @@ with col_sidebar:
         st.success("✅ Document processed successfully!")
         st.markdown(f"""
         **Results:**
-        - File: `{r['filename']}`
-        - Pages extracted: `{r['pages']}`
-        - Chunks created: `{r['chunks']}`
-        - Avg chunk size: `{r['avg_chunk_size']} chars`
+        - File: `{r["filename"]}`
+        - Pages extracted: `{r["pages"]}`
+        - Chunks created: `{r["chunks"]}`
+        - Avg chunk size: `{r["avg_chunk_size"]} chars`
         """)
 
 
