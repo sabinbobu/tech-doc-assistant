@@ -83,6 +83,7 @@ class TestCallLlmProviderDispatch:
 
     def test_model_param_overrides_settings_llm_model(self):
         with (
+            patch.object(llm_client.settings, "llm_provider", "openai"),
             patch.object(llm_client.settings, "llm_model", "gpt-4o-mini"),
             patch.object(llm_client, "_call_openai", return_value="hi") as mock_openai,
         ):
@@ -92,6 +93,7 @@ class TestCallLlmProviderDispatch:
 
     def test_no_model_param_falls_back_to_settings_llm_model(self):
         with (
+            patch.object(llm_client.settings, "llm_provider", "openai"),
             patch.object(llm_client.settings, "llm_model", "gpt-4o-mini"),
             patch.object(llm_client, "_call_openai", return_value="hi") as mock_openai,
         ):
