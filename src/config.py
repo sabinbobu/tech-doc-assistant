@@ -129,6 +129,20 @@ class Settings(BaseSettings):
     max_answer_tokens: int = 1024
     synthesis_answer_tokens: int = 3000
 
+    # Classify each question as lookup / procedural / structural and, for
+    # procedural questions, decompose it into sub-queries (src/retrieval/
+    # query_plan.py). Unlike query_rewrite_enabled, this defaults ON — it's
+    # not an optional optimization measured to regress something that
+    # already worked, it's the actual fix for two concrete, verified
+    # failures ("guide me step by step to configure X" and "list the table
+    # of contents" both used to refuse outright). Degrades to lookup mode
+    # with the raw question on any failure — routing must never break
+    # retrieval, same philosophy as reranking_enabled and query_rewrite_enabled.
+    query_planning_enabled: bool = True
+
+    # Model for the classification/decomposition call. None reuses llm_model.
+    query_plan_model: str | None = None
+
 
 # Singleton pattern — one settings instance for the whole app
 # In C terms, this is like a global config struct initialized once at startup

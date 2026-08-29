@@ -22,11 +22,17 @@ from anthropic import Anthropic
 from openai import OpenAI
 
 from src.config import settings
-from src.embedding.vector_store import query_collection
+from src.embedding.vector_store import (
+    list_indexed_documents,
+    load_document_outline,
+    query_collection,
+)
 from src.generation.models import Answer, RetrievedContext
-from src.generation.prompts import SYSTEM_PROMPT, build_user_prompt
+from src.generation.prompts import SYNTHESIS_SYSTEM_PROMPT, SYSTEM_PROMPT, build_user_prompt
+from src.retrieval.query_plan import QueryPlan, plan_query
 from src.retrieval.query_rewrite import rewrite_query
 from src.retrieval.rerank import rerank
+from src.retrieval.structure import find_sections, render_toc_for_all_documents
 
 logger = logging.getLogger(__name__)
 
@@ -89,25 +95,42 @@ def generate_answer(
     if n_results is None:
         n_results = settings.retrieval_top_k
 
-    # ── Step 1: Rewrite the question into a search query ──
-    # The index doesn't care about grammar — BM25 rewards term overlap, and
-    # this corpus is dense with identifiers (rule numbers, "Mandatory" vs
-    # "Advisory") that a short keyword query matches better than a full
-    # question's prose does. `question` itself is untouched — the LLM prompt
-    # and citations always use what the user actually asked.
-    search_query, _identifiers = rewrite_query(question)
+    # ── Step 1: Classify and route ──
+    # Three question shapes need three different strategies — see
+    # src/retrieval/query_plan.py's module docstring for why one strategy
+    # for all three was exactly what was broken (verified: a "guide me step
+    # by step" question got refused even though retrieval had the right
+    # page, and "list the table of contents" has no chunk-retrieval answer
+    # at all). Degrades to "lookup" (today's original behavior) on any
+    # classification failure.
+    plan = plan_query(question)
 
-    # ── Step 2: Retrieve a candidate pool ──
-    # Fetch more than we need (settings.retrieval_candidate_k) so reranking
-    # has something to actually re-sort — hybrid search's rank-60 fusion order
-    # isn't necessarily the cross-encoder's relevance order, so a chunk that
-    # placed #15 by RRF might belong in the final top n_results after a model
-    # actually reads it against the question.
+    if plan.mode == "structural":
+        return _generate_structural_answer(question, plan, source_filenames)
+
     candidate_k = max(settings.retrieval_candidate_k, n_results)
-    logger.info(f"Retrieving context for: '{question}' (search query: '{search_query}')")
-    raw_chunks = query_collection(
-        search_query, n_results=candidate_k, source_filenames=source_filenames
-    )
+
+    if plan.mode == "procedural":
+        # ── Step 2 (procedural): multi-query retrieval ──
+        # A single query only searches one neighborhood of the document.
+        # "Guide me step by step to configure X" needs evidence from pin
+        # definitions, protection features, and timing diagrams that don't
+        # sit near each other — so we search once per sub-query and union
+        # the results, instead of hoping one query's top_k spans all of it.
+        sub_queries = plan.sub_queries or [question]
+        raw_chunks = _retrieve_for_procedural(sub_queries, source_filenames, candidate_k)
+    else:
+        # ── Step 2 (lookup): unchanged from before query planning existed ──
+        # The index doesn't care about grammar — BM25 rewards term overlap,
+        # and this corpus is dense with identifiers (rule numbers, "Mandatory"
+        # vs "Advisory") that a short keyword query matches better than a
+        # full question's prose does. `question` itself is untouched — the
+        # LLM prompt and citations always use what the user actually asked.
+        search_query, _identifiers = rewrite_query(question)
+        logger.info(f"Retrieving context for: '{question}' (search query: '{search_query}')")
+        raw_chunks = query_collection(
+            search_query, n_results=candidate_k, source_filenames=source_filenames
+        )
 
     if not raw_chunks:
         return Answer(
@@ -118,18 +141,29 @@ def generate_answer(
         )
 
     # ── Step 3: Rerank down to the final top-k ──
-    # Reranked against the original `question`, not `search_query` — the
-    # cross-encoder reads natural language well (it's what it's trained on),
-    # unlike BM25/embeddings where a terse keyword query helps.
+    # Reranked against the original `question` in every mode, including
+    # procedural (not any one sub-query) — the cross-encoder reads natural
+    # language well (it's what it's trained on), and the question is what
+    # the answer actually needs to satisfy.
     raw_chunks = rerank(question, raw_chunks, top_k=n_results)
 
     # ── Step 4: Build prompt ──
+    # Procedural mode gets the synthesis prompt (permits assembling a
+    # procedure from documented facts, requires marking inference — see
+    # SYNTHESIS_SYSTEM_PROMPT's docstring) and a larger output budget; a
+    # multi-step procedure doesn't fit in a lookup-sized response.
     user_prompt = build_user_prompt(question, raw_chunks)
+    if plan.mode == "procedural":
+        system_prompt = SYNTHESIS_SYSTEM_PROMPT
+        max_tokens = settings.synthesis_answer_tokens
+    else:
+        system_prompt = SYSTEM_PROMPT
+        max_tokens = None  # _call_llm defaults to settings.max_answer_tokens
 
     # ── Step 5: Call LLM ──
     logger.info(f"Generating answer with {settings.llm_provider}/{settings.llm_model}")
     try:
-        answer_text = _call_llm(user_prompt)
+        answer_text = _call_llm(user_prompt, system_prompt=system_prompt, max_tokens=max_tokens)
     except Exception as exc:
         raise RuntimeError(
             f"LLM call failed ({settings.llm_provider}/{settings.llm_model}): {exc}"
@@ -156,6 +190,74 @@ def generate_answer(
         sources=sources,
         has_answer=has_answer,
     )
+
+
+def _retrieve_for_procedural(
+    sub_queries: list[str],
+    source_filenames: list[str] | None,
+    candidate_k: int,
+) -> list[dict]:
+    """
+    Run hybrid search once per sub-query and union the results.
+
+    Deduped by (source_filename, chunk_index) — the same chunk legitimately
+    turns up under more than one sub-query (e.g. a diagnosis-timing passage
+    matching both "short circuit to ground diagnosis" and "diagnosis retry
+    timing"), and it should only reach the reranker once.
+    """
+    seen: set[tuple[str, int]] = set()
+    union: list[dict] = []
+    for sub_query in sub_queries:
+        results = query_collection(
+            sub_query, n_results=candidate_k, source_filenames=source_filenames
+        )
+        for chunk in results:
+            key = (
+                chunk["metadata"].get("source_filename", ""),
+                chunk["metadata"].get("chunk_index", -1),
+            )
+            if key not in seen:
+                seen.add(key)
+                union.append(chunk)
+    return union
+
+
+def _generate_structural_answer(
+    question: str,
+    plan: QueryPlan,
+    source_filenames: list[str] | None,
+) -> Answer:
+    """
+    Answer a structural question directly from the document outline — no
+    chunk retrieval, no LLM call. See src/retrieval/structure.py's module
+    docstring for why: there's no chunk boundary that reconstructs "the
+    whole table of contents", and an LLM reformatting an already-correct
+    outline can only make it less accurate, never more.
+    """
+    available = source_filenames or [d["filename"] for d in list_indexed_documents()]
+
+    if plan.structural_keyword:
+        matches = [
+            (filename, entry)
+            for filename in available
+            for entry in find_sections(filename, plan.structural_keyword)
+        ]
+        if matches:
+            lines = [
+                f"- {filename}: {entry.title} (page {entry.page})" for filename, entry in matches
+            ]
+            answer_text = f"Sections matching '{plan.structural_keyword}':\n" + "\n".join(lines)
+        else:
+            answer_text = (
+                f"No sections matching '{plan.structural_keyword}' were found in the "
+                "loaded documents' tables of contents."
+            )
+        has_answer = bool(matches)
+    else:
+        has_answer = any(load_document_outline(filename) for filename in available)
+        answer_text = render_toc_for_all_documents(source_filenames)
+
+    return Answer(question=question, answer=answer_text, sources=[], has_answer=has_answer)
 
 
 def _call_llm(
