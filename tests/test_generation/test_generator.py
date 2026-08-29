@@ -156,6 +156,7 @@ class TestGenerateAnswer:
 
         assert isinstance(result, Answer)
         assert result.question == "What is a deviation?"
+        assert result.mode == "lookup"
 
     @patch("src.generation.generator._call_llm")
     @patch("src.generation.generator.query_collection")
@@ -432,12 +433,13 @@ class TestGenerateAnswer:
         mock_retrieval.return_value = sample_raw_chunks
         mock_llm.return_value = "1. Set DEN high [Source: ds.pdf, page 6]."
 
-        generate_answer("Guide me step by step to configure X")
+        result = generate_answer("Guide me step by step to configure X")
 
         mock_llm.assert_called_once()
         _, kwargs = mock_llm.call_args
         assert kwargs["system_prompt"] == SYNTHESIS_SYSTEM_PROMPT
         assert kwargs["max_tokens"] == settings.synthesis_answer_tokens
+        assert result.mode == "procedural"
 
     @patch("src.generation.generator._call_llm")
     @patch("src.generation.generator.query_collection")
@@ -483,6 +485,7 @@ class TestGenerateAnswer:
         mock_render.assert_called_once()
         assert result.has_answer is True
         assert result.sources == []
+        assert result.mode == "structural"
         assert "1 Overview" in result.answer
 
     def test_structural_mode_with_keyword_searches_sections(self, mock_plan_query):
