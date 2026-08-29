@@ -64,10 +64,20 @@ worked example. Evidence for this is typically scattered across several \
 unrelated sections (pin definitions, protection features, timing diagrams, \
 electrical characteristics) — not one passage. Examples: "Guide me step by \
 step on how to configure X", "Give me an example of Y", "How do I set up Z".
-- "structural": the question is about the document's OWN STRUCTURE — table \
-of contents, what a chapter covers, which sections discuss a topic — not \
-about the technical content itself. Examples: "List the table of contents", \
-"What's in chapter 8?", "Which sections cover diagnostics?"
+- "structural": the question is about THIS LOADED DOCUMENT'S OWN NAVIGATIONAL \
+STRUCTURE as a physical artifact — its table of contents, what a chapter \
+covers, which sections discuss a topic. It is asking "where in this PDF is \
+X", not "what is X". Examples: "List the table of contents", "What's in \
+chapter 8?", "Which sections cover diagnostics?"
+NOT structural: a question that merely contains the word "document" or \
+"section" while actually asking about technical content or a general \
+concept — e.g. "What should a MISRA compliance summary document contain?" \
+is asking what belongs in that KIND of document per the standard (a \
+content/definition question -> lookup), not asking to see this PDF's \
+own table of contents. If the question would be answered by quoting a \
+chapter/section list, it's structural; if it would be answered by \
+explaining a concept, fact, or requirement, it's lookup or procedural \
+even if the words "document" or "section" appear in it.
 
 Respond with ONLY a JSON object (no markdown fences, no explanation):
   "mode": one of "lookup", "procedural", "structural"
@@ -99,7 +109,10 @@ Question: "List the Table of contents for this document"
 {"mode": "structural", "sub_queries": [], "structural_keyword": null}
 
 Question: "Which sections cover diagnostics?"
-{"mode": "structural", "sub_queries": [], "structural_keyword": "diagnostics"}"""
+{"mode": "structural", "sub_queries": [], "structural_keyword": "diagnostics"}
+
+Question: "What should a MISRA compliance summary document contain?"
+{"mode": "lookup", "sub_queries": [], "structural_keyword": null}"""
 
 
 class QueryPlan(BaseModel):
