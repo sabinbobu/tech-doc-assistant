@@ -87,49 +87,35 @@ class TestRewriteQuery:
         mock_call_llm.assert_not_called()
 
 
-class TestCallLlmProviderDispatch:
-    def test_uses_openai_by_default(self):
-        with (
-            patch.object(query_rewrite_module.settings, "llm_provider", "openai"),
-            patch.object(query_rewrite_module, "_call_openai", return_value="{}") as mock_openai,
-            patch.object(query_rewrite_module, "_call_anthropic") as mock_anthropic,
-        ):
-            query_rewrite_module._call_llm("a question")
-
-        mock_openai.assert_called_once()
-        mock_anthropic.assert_not_called()
-
-    def test_uses_anthropic_when_configured(self):
-        with (
-            patch.object(query_rewrite_module.settings, "llm_provider", "anthropic"),
-            patch.object(query_rewrite_module, "_call_openai") as mock_openai,
-            patch.object(
-                query_rewrite_module, "_call_anthropic", return_value="{}"
-            ) as mock_anthropic,
-        ):
-            query_rewrite_module._call_llm("a question")
-
-        mock_anthropic.assert_called_once()
-        mock_openai.assert_not_called()
+class TestCallLlmDelegatesToLlmClient:
+    """
+    Provider dispatch itself (openai/anthropic/openrouter) is now
+    src/generation/llm_client.py's job and tested there
+    (tests/test_generation/test_llm_client.py) -- these tests only check
+    that query_rewrite._call_llm resolves its model override correctly and
+    hands off to that shared gateway with the right arguments.
+    """
 
     def test_rewrite_model_override_takes_precedence_over_llm_model(self):
         with (
-            patch.object(query_rewrite_module.settings, "llm_provider", "openai"),
             patch.object(query_rewrite_module.settings, "llm_model", "gpt-4o"),
             patch.object(query_rewrite_module.settings, "rewrite_model", "gpt-4o-mini"),
-            patch.object(query_rewrite_module, "_call_openai", return_value="{}") as mock_openai,
+            patch.object(query_rewrite_module.llm_client, "call_llm", return_value="{}") as mock,
         ):
             query_rewrite_module._call_llm("a question")
 
-        mock_openai.assert_called_once_with("a question", "gpt-4o-mini")
+        mock.assert_called_once_with(
+            query_rewrite_module.SYSTEM_PROMPT, "a question", max_tokens=256, model="gpt-4o-mini"
+        )
 
     def test_none_rewrite_model_falls_back_to_llm_model(self):
         with (
-            patch.object(query_rewrite_module.settings, "llm_provider", "openai"),
             patch.object(query_rewrite_module.settings, "llm_model", "gpt-4o-mini"),
             patch.object(query_rewrite_module.settings, "rewrite_model", None),
-            patch.object(query_rewrite_module, "_call_openai", return_value="{}") as mock_openai,
+            patch.object(query_rewrite_module.llm_client, "call_llm", return_value="{}") as mock,
         ):
             query_rewrite_module._call_llm("a question")
 
-        mock_openai.assert_called_once_with("a question", "gpt-4o-mini")
+        mock.assert_called_once_with(
+            query_rewrite_module.SYSTEM_PROMPT, "a question", max_tokens=256, model="gpt-4o-mini"
+        )

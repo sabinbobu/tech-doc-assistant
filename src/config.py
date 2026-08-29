@@ -46,14 +46,19 @@ class Settings(BaseSettings):
     vectorstore_dir: Path = project_root / "vectorstore"
 
     # ── LLM Configuration ──
-    # We support both OpenAI and Anthropic — the job description asks for both.
+    # We support OpenAI, Anthropic, and OpenRouter (a proxy exposing many
+    # providers, including free-tier models, behind one OpenAI-compatible API —
+    # see src/generation/llm_client.py).
     openai_api_key: str = ""
     anthropic_api_key: str = ""
+    openrouter_api_key: str = ""
 
     # Which LLM to use for answer generation
     # "gpt-4o-mini" is cheap and good for development
     # "claude-sonnet-4-5-20250514" for Anthropic
-    llm_provider: str = "openai"  # "openai" or "anthropic"
+    # For "openrouter", llm_model must be an OpenRouter model slug, e.g.
+    # "deepseek/deepseek-chat-v3.1:free" — see https://openrouter.ai/models
+    llm_provider: str = "openai"  # "openai", "anthropic", or "openrouter"
     llm_model: str = "gpt-4o-mini"
 
     # ── Embedding Configuration ──

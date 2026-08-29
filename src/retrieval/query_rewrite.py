@@ -28,6 +28,7 @@ import json
 import logging
 
 from src.config import settings
+from src.generation import llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -76,40 +77,14 @@ def rewrite_query(question: str) -> tuple[str, list[str]]:
 
 
 def _call_llm(question: str) -> str:
-    """Call the configured LLM provider and return the raw response text."""
+    """
+    Call the configured LLM provider and return the raw response text.
+
+    Provider dispatch (OpenAI / Anthropic / OpenRouter) lives in
+    src/generation/llm_client.py, shared with generator.py and query_plan.py.
+    This wrapper's job is just resolving the rewrite-specific model override
+    before delegating — kept as a named function so tests can keep patching
+    "src.retrieval.query_rewrite._call_llm".
+    """
     model = settings.rewrite_model or settings.llm_model
-
-    if settings.llm_provider == "anthropic":
-        return _call_anthropic(question, model)
-    else:
-        return _call_openai(question, model)
-
-
-def _call_openai(question: str, model: str) -> str:
-    from openai import OpenAI
-
-    client = OpenAI(api_key=settings.openai_api_key)
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": question},
-        ],
-        temperature=0,
-        max_tokens=256,
-    )
-    return response.choices[0].message.content or ""
-
-
-def _call_anthropic(question: str, model: str) -> str:
-    from anthropic import Anthropic
-
-    client = Anthropic(api_key=settings.anthropic_api_key)
-    response = client.messages.create(
-        model=model,
-        max_tokens=256,
-        temperature=0,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": question}],
-    )
-    return response.content[0].text
+    return llm_client.call_llm(SYSTEM_PROMPT, question, max_tokens=256, model=model)

@@ -18,15 +18,13 @@ This is why Steps 3 and 4 matter so much — garbage retrieval = garbage answers
 
 import logging
 
-from anthropic import Anthropic
-from openai import OpenAI
-
 from src.config import settings
 from src.embedding.vector_store import (
     list_indexed_documents,
     load_document_outline,
     query_collection,
 )
+from src.generation.llm_client import call_llm
 from src.generation.models import Answer, RetrievedContext
 from src.generation.prompts import SYNTHESIS_SYSTEM_PROMPT, SYSTEM_PROMPT, build_user_prompt
 from src.retrieval.query_plan import QueryPlan, plan_query
@@ -276,13 +274,12 @@ def _call_llm(
     """
     Call the configured LLM provider and return the response text.
 
-    Supports both OpenAI and Anthropic — the job description asks for both.
-    The provider is controlled by settings.llm_provider in your .env.
-
-    This is a private function (underscore prefix) — callers use
-    generate_answer() and don't need to know which LLM is being used.
-    Like a HAL function in embedded — the caller doesn't care if it's
-    SPI or I2C underneath.
+    The actual provider dispatch (OpenAI / Anthropic / OpenRouter) lives in
+    src/generation/llm_client.py, shared with query_rewrite.py and
+    query_plan.py. This wrapper's job is just resolving generator.py's own
+    default token budget before delegating — kept as a named function (rather
+    than calling call_llm() directly from generate_answer()) so every existing
+    test can keep patching "src.generation.generator._call_llm".
 
     Args:
         user_prompt: The fully constructed prompt with context + question.
@@ -297,43 +294,4 @@ def _call_llm(
     """
     if max_tokens is None:
         max_tokens = settings.max_answer_tokens
-    if settings.llm_provider == "anthropic":
-        return _call_anthropic(user_prompt, system_prompt, max_tokens)
-    else:
-        return _call_openai(user_prompt, system_prompt, max_tokens)
-
-
-def _call_openai(user_prompt: str, system_prompt: str, max_tokens: int) -> str:
-    """Call OpenAI API and return response text."""
-    client = OpenAI(api_key=settings.openai_api_key)
-
-    response = client.chat.completions.create(
-        model=settings.llm_model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0,  # 0 = deterministic — we want consistent, factual answers
-        # not creative variation. Same query should give same answer.
-        # Like disabling dithering on your ADC for stable readings.
-        max_tokens=max_tokens,
-    )
-
-    return response.choices[0].message.content or ""
-
-
-def _call_anthropic(user_prompt: str, system_prompt: str, max_tokens: int) -> str:
-    """Call Anthropic API and return response text."""
-    client = Anthropic(api_key=settings.anthropic_api_key)
-
-    response = client.messages.create(
-        model=settings.llm_model,
-        max_tokens=max_tokens,
-        temperature=0,
-        system=system_prompt,
-        messages=[
-            {"role": "user", "content": user_prompt},
-        ],
-    )
-
-    return response.content[0].text
+    return call_llm(system_prompt, user_prompt, max_tokens)
