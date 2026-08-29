@@ -11,9 +11,10 @@ from unittest.mock import patch
 import pytest
 
 from src.config import settings
-from src.generation.generator import generate_answer
+from src.generation.generator import _is_refusal, generate_answer
 from src.generation.models import Answer
 from src.generation.prompts import build_user_prompt
+from src.retrieval.query_plan import QueryPlan
 
 # ── Fixtures ──
 
@@ -66,6 +67,21 @@ class TestBuildUserPrompt:
         assert "MISRA-Compliance-2020.pdf, page 14" in prompt
         assert "MISRA-Compliance-2020.pdf, page 15" in prompt
 
+    def test_includes_section_when_chunk_has_one(self, sample_raw_chunks):
+        """A chunk from a document with an outline should surface its
+        section in the passage header — the whole point of tagging chunks
+        with document structure (src/chunking/chunker.py's
+        document.section_for_page call)."""
+        sample_raw_chunks[0]["metadata"]["section"] = "4 Deviations"
+        prompt = build_user_prompt("What is a deviation?", sample_raw_chunks)
+        assert "Section: 4 Deviations" in prompt
+
+    def test_omits_section_label_when_chunk_has_none(self, sample_raw_chunks):
+        """Documents with no embedded outline (section is None/absent) must
+        not show a bogus "Section: None" label."""
+        prompt = build_user_prompt("What is a deviation?", sample_raw_chunks)
+        assert "Section:" not in prompt
+
     def test_context_appears_before_question(self, sample_raw_chunks):
         """Context must come before the question in the prompt."""
         prompt = build_user_prompt("What is a deviation?", sample_raw_chunks)
@@ -110,6 +126,23 @@ class TestGenerateAnswer:
         ) as mock:
             yield mock
 
+    @pytest.fixture(autouse=True)
+    def mock_plan_query(self):
+        """
+        generate_answer's first step now classifies the question via a real
+        LLM call (src/retrieval/query_plan.py). These tests exist to check
+        generator logic for the (pre-existing) lookup path — routing itself
+        has its own tests in tests/test_retrieval/test_query_plan.py — so
+        default every test here to "lookup" mode, matching what these tests
+        were written against before query planning existed. Tests that
+        specifically exercise procedural/structural routing override this.
+        """
+        with patch(
+            "src.generation.generator.plan_query",
+            return_value=QueryPlan(mode="lookup", sub_queries=[]),
+        ) as mock:
+            yield mock
+
     @patch("src.generation.generator._call_llm")
     @patch("src.generation.generator.query_collection")
     def test_returns_answer_object(self, mock_retrieval, mock_llm, sample_raw_chunks):
@@ -149,6 +182,29 @@ class TestGenerateAnswer:
         result = generate_answer("What is the meaning of life?")
 
         assert result.has_answer is False
+
+    @patch("src.generation.generator._call_llm")
+    @patch("src.generation.generator.query_collection")
+    def test_has_answer_true_for_partial_answer_mentioning_the_refusal_phrase(
+        self, mock_retrieval, mock_llm, sample_raw_chunks
+    ):
+        """A real, useful partial answer that happens to mention what ISN'T
+        covered must not be flagged as a total failure -- this is the bug
+        _is_refusal exists to fix. The old substring check treated this
+        exact shape of answer as a refusal, which then hid its own Sources
+        panel in the UI (src/ui/app.py) behind a "no information" warning."""
+        mock_retrieval.return_value = sample_raw_chunks
+        mock_llm.return_value = (
+            "The sensor reports Overtemperature and Short-Circuit faults "
+            "[Source: manual.pdf, page 12]. The documentation does not "
+            "contain information about this topic in Python form -- it "
+            "only describes the hardware CAL pin procedure "
+            "[Source: manual.pdf, page 15]."
+        )
+
+        result = generate_answer("What faults does it report, and how do I calibrate it in Python?")
+
+        assert result.has_answer is True
 
     @patch("src.generation.generator.query_collection")
     def test_empty_retrieval_returns_graceful_answer(self, mock_retrieval):
@@ -305,6 +361,218 @@ class TestGenerateAnswer:
 
         assert result.sources[0].rerank_score is None
 
+    @patch("src.generation.generator._call_llm")
+    @patch("src.generation.generator.query_collection")
+    def test_procedural_mode_retrieves_once_per_sub_query(
+        self, mock_retrieval, mock_llm, mock_plan_query, sample_raw_chunks
+    ):
+        """Procedural mode must search once per sub-query (the whole point:
+        evidence for a configuration procedure is scattered across sections
+        a single query's top-k won't span) rather than falling through to
+        the single rewrite_query() lookup path."""
+        mock_plan_query.return_value = QueryPlan(
+            mode="procedural",
+            sub_queries=["pin configuration", "protection features", "diagnosis timing"],
+        )
+        mock_retrieval.return_value = sample_raw_chunks
+        mock_llm.return_value = "1. Set DEN high [Source: ds.pdf, page 6]."
+
+        generate_answer("Guide me step by step on how to configure X")
+
+        assert mock_retrieval.call_count == 3
+        called_queries = [call.args[0] for call in mock_retrieval.call_args_list]
+        assert called_queries == ["pin configuration", "protection features", "diagnosis timing"]
+
+    @patch("src.generation.generator._call_llm")
+    @patch("src.generation.generator.query_collection")
+    def test_procedural_mode_dedupes_across_sub_queries(
+        self, mock_retrieval, mock_llm, mock_plan_query, mock_rerank
+    ):
+        """The same chunk can legitimately match more than one sub-query
+        (e.g. a diagnosis-timing passage matching both a "diagnosis" and a
+        "timing" sub-query) -- it must reach the reranker once, not once
+        per sub-query it happened to match."""
+        mock_plan_query.return_value = QueryPlan(
+            mode="procedural", sub_queries=["diagnosis", "timing"]
+        )
+        shared_chunk = {
+            "text": "shared passage",
+            "metadata": {
+                "citation": "ds.pdf, page 45",
+                "page_number": 45,
+                "source_filename": "ds.pdf",
+                "chunk_index": 7,
+            },
+            "distance": 0.1,
+        }
+        mock_retrieval.return_value = [shared_chunk]  # same chunk both calls
+        mock_llm.return_value = "An answer."
+
+        generate_answer("Guide me step by step to configure X")
+
+        # rerank() receives the deduped candidate pool -- exactly one copy
+        # of the shared chunk, not two.
+        reranked_input = mock_rerank.call_args[0][1]
+        assert len(reranked_input) == 1
+
+    @patch("src.generation.generator._call_llm")
+    @patch("src.generation.generator.query_collection")
+    def test_procedural_mode_uses_synthesis_prompt_and_larger_budget(
+        self, mock_retrieval, mock_llm, mock_plan_query, sample_raw_chunks
+    ):
+        """The synthesis prompt (which permits assembling a procedure and
+        requires marking inference) and a larger token budget must be used
+        for procedural mode -- SYSTEM_PROMPT's "use ONLY the provided
+        context" framing is exactly what caused the original refusal this
+        feature exists to fix."""
+        from src.config import settings
+        from src.generation.prompts import SYNTHESIS_SYSTEM_PROMPT
+
+        mock_plan_query.return_value = QueryPlan(mode="procedural", sub_queries=["pin config"])
+        mock_retrieval.return_value = sample_raw_chunks
+        mock_llm.return_value = "1. Set DEN high [Source: ds.pdf, page 6]."
+
+        generate_answer("Guide me step by step to configure X")
+
+        mock_llm.assert_called_once()
+        _, kwargs = mock_llm.call_args
+        assert kwargs["system_prompt"] == SYNTHESIS_SYSTEM_PROMPT
+        assert kwargs["max_tokens"] == settings.synthesis_answer_tokens
+
+    @patch("src.generation.generator._call_llm")
+    @patch("src.generation.generator.query_collection")
+    def test_procedural_mode_with_no_sub_queries_falls_back_to_the_question(
+        self, mock_retrieval, mock_llm, mock_plan_query, sample_raw_chunks
+    ):
+        """A classifier that says "procedural" but forgets to decompose
+        must still retrieve something, not silently return zero results --
+        routing must degrade, never break retrieval."""
+        mock_plan_query.return_value = QueryPlan(mode="procedural", sub_queries=[])
+        mock_retrieval.return_value = sample_raw_chunks
+        mock_llm.return_value = "An answer."
+
+        generate_answer("Guide me step by step to configure X")
+
+        mock_retrieval.assert_called_once()
+        assert mock_retrieval.call_args.args[0] == "Guide me step by step to configure X"
+
+    def test_structural_mode_renders_full_toc_without_calling_llm(self, mock_plan_query):
+        """Structural mode must never call the LLM -- an LLM reformatting an
+        already-correct outline can only make it less accurate, never more.
+        See src/retrieval/structure.py's module docstring."""
+        mock_plan_query.return_value = QueryPlan(mode="structural", sub_queries=[])
+
+        with (
+            patch(
+                "src.generation.generator.list_indexed_documents",
+                return_value=[{"filename": "ds.pdf"}],
+            ),
+            patch(
+                "src.generation.generator.load_document_outline",
+                return_value=[{"level": 1, "title": "1 Overview", "page": 1}],
+            ),
+            patch(
+                "src.generation.generator.render_toc_for_all_documents",
+                return_value="ds.pdf:\n  - 1 Overview (page 1)",
+            ) as mock_render,
+            patch("src.generation.generator._call_llm") as mock_llm,
+        ):
+            result = generate_answer("List the table of contents")
+
+        mock_llm.assert_not_called()
+        mock_render.assert_called_once()
+        assert result.has_answer is True
+        assert result.sources == []
+        assert "1 Overview" in result.answer
+
+    def test_structural_mode_with_keyword_searches_sections(self, mock_plan_query):
+        """A targeted structural question ("which sections cover
+        diagnostics") must search section titles, not render the whole
+        TOC."""
+        mock_plan_query.return_value = QueryPlan(
+            mode="structural", sub_queries=[], structural_keyword="diagnostics"
+        )
+        match = type("Entry", (), {"title": "9 Diagnosis", "page": 41})()
+
+        with (
+            patch(
+                "src.generation.generator.list_indexed_documents",
+                return_value=[{"filename": "ds.pdf"}],
+            ),
+            patch("src.generation.generator.find_sections", return_value=[match]) as mock_find,
+            patch("src.generation.generator._call_llm") as mock_llm,
+        ):
+            result = generate_answer("Which sections cover diagnostics?")
+
+        mock_llm.assert_not_called()
+        mock_find.assert_called_once_with("ds.pdf", "diagnostics")
+        assert result.has_answer is True
+        assert "9 Diagnosis" in result.answer
+
+    def test_structural_mode_no_matches_returns_has_answer_false(self, mock_plan_query):
+        mock_plan_query.return_value = QueryPlan(
+            mode="structural", sub_queries=[], structural_keyword="nonexistent"
+        )
+
+        with (
+            patch(
+                "src.generation.generator.list_indexed_documents",
+                return_value=[{"filename": "ds.pdf"}],
+            ),
+            patch("src.generation.generator.find_sections", return_value=[]),
+            patch("src.generation.generator._call_llm") as mock_llm,
+        ):
+            result = generate_answer("Which sections cover blorp?")
+
+        mock_llm.assert_not_called()
+        assert result.has_answer is False
+
+
+class TestRetrieveForProcedural:
+    """Direct tests for the dedup/union helper, separate from the routing
+    tests above which check it's wired in correctly."""
+
+    def test_unions_results_across_sub_queries(self):
+        from src.generation.generator import _retrieve_for_procedural
+
+        def fake_query_collection(query, n_results, source_filenames):
+            return [
+                {
+                    "text": query,
+                    "metadata": {"source_filename": "ds.pdf", "chunk_index": hash(query) % 1000},
+                }
+            ]
+
+        with patch("src.generation.generator.query_collection", side_effect=fake_query_collection):
+            result = _retrieve_for_procedural(["a", "b", "c"], None, candidate_k=10)
+
+        assert len(result) == 3
+
+    def test_dedupes_by_source_filename_and_chunk_index(self):
+        from src.generation.generator import _retrieve_for_procedural
+
+        shared = {"text": "x", "metadata": {"source_filename": "ds.pdf", "chunk_index": 5}}
+
+        with patch("src.generation.generator.query_collection", return_value=[shared]):
+            result = _retrieve_for_procedural(["a", "b"], None, candidate_k=10)
+
+        assert len(result) == 1
+
+    def test_same_chunk_index_different_document_is_not_deduped(self):
+        """chunk_index restarts per document (src/embedding/vector_store.py)
+        -- (source_filename, chunk_index) is the real identity, not
+        chunk_index alone."""
+        from src.generation.generator import _retrieve_for_procedural
+
+        def fake_query_collection(query, n_results, source_filenames):
+            filename = "a.pdf" if query == "first" else "b.pdf"
+            return [{"text": query, "metadata": {"source_filename": filename, "chunk_index": 0}}]
+
+        with patch("src.generation.generator.query_collection", side_effect=fake_query_collection):
+            result = _retrieve_for_procedural(["first", "second"], None, candidate_k=10)
+
+        assert len(result) == 2
+
 
 # ── Tests for Answer model ──
 
@@ -333,3 +601,42 @@ class TestAnswerModel:
         answer = Answer(question="test", answer="test answer", sources=sources, has_answer=True)
         formatted = answer.formatted_sources
         assert formatted.count("misra.pdf, page 14") == 1
+
+
+# ── Tests for _is_refusal ──
+
+
+class TestIsRefusal:
+    def test_exact_refusal_phrase(self):
+        assert (
+            _is_refusal("The provided documentation does not contain information about this topic.")
+            is True
+        )
+
+    def test_refusal_with_surrounding_whitespace(self):
+        assert (
+            _is_refusal(
+                "  The provided documentation does not contain information about this topic.  "
+            )
+            is True
+        )
+
+    def test_partial_answer_mentioning_the_phrase_is_not_a_refusal(self):
+        assert (
+            _is_refusal(
+                "The sensor reports Overtemperature and Short-Circuit faults "
+                "[Source: manual.pdf, page 12]. The documentation does not "
+                "contain information about this topic in Python form -- it "
+                "only describes the hardware CAL pin procedure "
+                "[Source: manual.pdf, page 15]."
+            )
+            is False
+        )
+
+    def test_normal_answer_is_not_a_refusal(self):
+        assert (
+            _is_refusal(
+                "The BTS7200-2EPA is a Smart High-Side Power Switch [Source: ds.pdf, page 2]."
+            )
+            is False
+        )

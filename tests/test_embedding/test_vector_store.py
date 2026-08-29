@@ -21,7 +21,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.chunking.models import Chunk
-from src.embedding.vector_store import embed_chunks, list_indexed_documents, query_collection
+from src.embedding.vector_store import (
+    embed_chunks,
+    list_indexed_documents,
+    load_document_outline,
+    query_collection,
+    save_document_outline,
+)
+from src.ingestion.models import DocumentContent, OutlineEntry
 
 # ── Fixtures ──
 
@@ -358,3 +365,67 @@ class TestListIndexedDocuments:
             {"filename": "bts7200.pdf", "chunk_count": 1},
             {"filename": "misra.pdf", "chunk_count": 2},
         ]
+
+
+# ── Tests for document outline persistence ──
+
+
+class TestDocumentOutlinePersistence:
+    @pytest.fixture(autouse=True)
+    def outlines_in_tmp_dir(self, tmp_path):
+        """Route outline storage to a throwaway directory instead of the
+        real vectorstore/outlines/ — these tests write real files."""
+        with patch("src.embedding.vector_store.settings.vectorstore_dir", tmp_path):
+            yield tmp_path
+
+    def _document(self, filename: str, outline: list[OutlineEntry]) -> DocumentContent:
+        return DocumentContent(
+            filename=filename,
+            filepath=f"/tmp/{filename}",
+            total_pages=10,
+            pages=[],
+            outline=outline,
+        )
+
+    def test_round_trips_an_outline(self):
+        outline = [
+            OutlineEntry(level=1, title="1 Overview", page=1),
+            OutlineEntry(level=2, title="1.1 Details", page=2),
+        ]
+        save_document_outline(self._document("ds.pdf", outline))
+
+        loaded = load_document_outline("ds.pdf")
+
+        assert loaded == outline
+
+    def test_missing_document_returns_none_not_error(self):
+        assert load_document_outline("never-ingested.pdf") is None
+
+    def test_document_with_empty_outline_saves_and_loads_as_empty_list(self):
+        """A document with no embedded outline must not be indistinguishable
+        from a document that was never ingested at all -- render_toc's
+        caller needs both to resolve to 'no structure' safely, but the
+        distinction still matters for correctness: this asserts the empty
+        case round-trips as [], not None."""
+        save_document_outline(self._document("scanned.pdf", []))
+
+        assert load_document_outline("scanned.pdf") == []
+
+    def test_filename_with_unsafe_characters_does_not_crash(self):
+        """Real vendor filenames can contain spaces, parens, etc. — the
+        sidecar path must sanitize rather than fail."""
+        outline = [OutlineEntry(level=1, title="1 Overview", page=1)]
+        tricky_name = "infineon bts7200 (rev 1.1).pdf"
+
+        save_document_outline(self._document(tricky_name, outline))
+
+        assert load_document_outline(tricky_name) == outline
+
+    def test_resaving_overwrites_rather_than_appends(self):
+        first = [OutlineEntry(level=1, title="Old", page=1)]
+        second = [OutlineEntry(level=1, title="New", page=1)]
+
+        save_document_outline(self._document("ds.pdf", first))
+        save_document_outline(self._document("ds.pdf", second))
+
+        assert load_document_outline("ds.pdf") == second

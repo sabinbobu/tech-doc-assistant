@@ -117,6 +117,7 @@ def chunk_document(
                     chunk_index=chunk_index,
                     start_char=max(start_char, 0),
                     end_char=max(end_char, 0),
+                    section=document.section_for_page(page.page_number),
                 )
             )
             chunk_index += 1

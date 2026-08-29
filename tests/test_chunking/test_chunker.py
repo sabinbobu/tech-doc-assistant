@@ -11,7 +11,7 @@ import pytest
 
 from src.chunking.chunker import ChunkingConfig, chunk_document, get_chunk_stats
 from src.chunking.cleaner import clean_document, detect_repeating_lines
-from src.ingestion.models import DocumentContent, PageContent
+from src.ingestion.models import DocumentContent, OutlineEntry, PageContent
 
 # ── Fixtures ──
 # Reusable test data — like test vectors in embedded unit testing
@@ -126,6 +126,21 @@ class TestCleanDocument:
         clean_document(document_with_footers)
         assert document_with_footers.pages[0].text == original_text
 
+    def test_preserves_outline(self, document_with_footers):
+        """Regression test: clean_document() used to rebuild DocumentContent
+        without passing outline through, silently dropping it whenever a
+        document actually needed cleaning (the early-return-unchanged path
+        for already-clean documents masked this — document_with_footers has
+        real footers, so it exercises the rebuild path, not the early
+        return)."""
+        document_with_footers.outline = [
+            OutlineEntry(level=1, title="1 Introduction", page=1),
+        ]
+
+        cleaned = clean_document(document_with_footers, threshold=0.4)
+
+        assert cleaned.outline == document_with_footers.outline
+
 
 # ── Tests for chunker ──
 
@@ -149,6 +164,29 @@ class TestChunkDocument:
         chunks = chunk_document(clean_document_fixture)
         for chunk in chunks:
             assert chunk.text.strip() != ""
+
+    def test_chunk_carries_its_section(self, clean_document_fixture):
+        """Each chunk should be tagged with the outline entry that applies
+        to its page (via DocumentContent.section_for_page), so a retrieved
+        chunk carries real document context instead of arriving as an
+        anonymous paragraph."""
+        clean_document_fixture.outline = [
+            OutlineEntry(level=1, title="8 Rules", page=1),
+            OutlineEntry(level=2, title="8.5 Declarations", page=2),
+        ]
+
+        chunks = chunk_document(clean_document_fixture)
+
+        page_1_chunks = [c for c in chunks if c.page_number == 1]
+        page_2_chunks = [c for c in chunks if c.page_number == 2]
+        assert page_1_chunks and all(c.section == "8 Rules" for c in page_1_chunks)
+        assert page_2_chunks and all(c.section == "8.5 Declarations" for c in page_2_chunks)
+
+    def test_chunk_section_is_none_without_outline(self, clean_document_fixture):
+        """Documents with no embedded outline (clean_document_fixture's
+        default) must still chunk normally — section just stays None."""
+        chunks = chunk_document(clean_document_fixture)
+        assert all(c.section is None for c in chunks)
 
     def test_chunk_size_respects_config(self, clean_document_fixture):
         """Chunks should not exceed the configured max size by much.

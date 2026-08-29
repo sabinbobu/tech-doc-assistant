@@ -39,6 +39,16 @@ class Chunk(BaseModel):
     start_char: int = Field(description="Start character position within the page text")
     end_char: int = Field(description="End character position within the page text")
 
+    # Document-structure context — from DocumentContent.section_for_page().
+    # None for documents with no embedded outline, or chunks before the
+    # first outline entry (e.g. a cover page). This is what lets a
+    # retrieved chunk announce "I'm from the diagnosis chapter" instead of
+    # arriving as an anonymous paragraph — both for the LLM synthesizing an
+    # answer and a human reading the citation.
+    section: str | None = Field(
+        default=None, description="Title of the document section this chunk belongs to"
+    )
+
     @property
     def citation(self) -> str:
         """

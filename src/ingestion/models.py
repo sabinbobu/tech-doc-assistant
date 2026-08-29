@@ -35,6 +35,23 @@ class PageContent(BaseModel):
     # We'll add metadata like tables, images later as we enhance the system
 
 
+class OutlineEntry(BaseModel):
+    """
+    One entry from a PDF's embedded outline (bookmarks / table of contents).
+
+    PDF readers show this as the collapsible sidebar tree. Most
+    professionally-produced technical PDFs embed one — datasheets, standards,
+    user guides. It's structured data the *author* already built; we just
+    have to read it rather than reconstruct it from chunk text (which is
+    unreliable — see DocumentContent.full_text's TOC page, which is prose
+    with dot leaders, not structure).
+    """
+
+    level: int = Field(description="Nesting depth, 1-indexed (1 = top-level chapter)")
+    title: str = Field(description="Section/chapter title as it appears in the outline")
+    page: int = Field(description="1-indexed page number where this section begins")
+
+
 class DocumentContent(BaseModel):
     """
     Represents a fully ingested document with all its pages.
@@ -48,6 +65,32 @@ class DocumentContent(BaseModel):
     filepath: str = Field(description="Full path to the source PDF")
     total_pages: int = Field(description="Total number of pages in the document")
     pages: list[PageContent] = Field(description="List of extracted pages")
+    outline: list[OutlineEntry] = Field(
+        default_factory=list,
+        description=(
+            "The PDF's embedded outline/bookmarks, in document order. "
+            "Empty for PDFs that don't have one — never required."
+        ),
+    )
+
+    def section_for_page(self, page_number: int) -> str | None:
+        """
+        The most specific outline entry that applies to a given page.
+
+        WHY "LAST ENTRY AT OR BEFORE THIS PAGE, IN DOCUMENT ORDER":
+        Outline entries come in traversal order — a chapter's subsections are
+        listed immediately after it, before the next chapter. So walking
+        forward and taking the last entry with page <= page_number naturally
+        lands on the deepest applicable section, not just the nearest
+        chapter. Example: "3 Pin Configuration" (page 5), "3.1 Pin
+        Configuration" (page 5), "4 Electrical..." (page 8) — page 6 resolves
+        to "3.1", the specific subsection, not just "3".
+
+        Returns None if the document has no outline, or the page precedes
+        every outline entry (e.g. a cover page before "1 Overview").
+        """
+        applicable = [entry for entry in self.outline if entry.page <= page_number]
+        return applicable[-1].title if applicable else None
 
     @property
     def full_text(self) -> str:
