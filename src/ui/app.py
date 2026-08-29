@@ -58,6 +58,29 @@ st.set_page_config(
 # ── Helper functions ──
 
 
+_MODE_BADGES = {
+    "lookup": "🔍 Lookup",
+    "procedural": "🛠️ Procedural (synthesized)",
+    "structural": "📑 Structural (document outline)",
+}
+
+# Markers the synthesis prompt (SYNTHESIS_SYSTEM_PROMPT) is instructed to emit on
+# procedural answers — see src/generation/prompts.py. Styling them distinctly is the
+# whole point of the labeled-inference convention: a developer skimming a generated
+# configuration procedure needs to see at a glance which steps are cited fact versus
+# engineering judgment versus a value the documentation genuinely doesn't give, not
+# discover the difference only by reading every word.
+_INFERRED_MARKER = "(Inferred)"
+_NOT_SPECIFIED_MARKER = "(Not specified — verify against your design)"
+
+
+def style_inference_markers(text: str) -> str:
+    """Highlight labeled-inference markers so they stand out from cited fact."""
+    text = text.replace(_INFERRED_MARKER, f":orange[{_INFERRED_MARKER}]")
+    text = text.replace(_NOT_SPECIFIED_MARKER, f":red[{_NOT_SPECIFIED_MARKER}]")
+    return text
+
+
 def get_document_count() -> int:
     """
     Check how many vectors are stored in ChromaDB.
@@ -201,7 +224,8 @@ with col_main:
             with st.chat_message("user"):
                 st.write(past_question)
             with st.chat_message("assistant"):
-                st.write(past_answer.answer)
+                st.caption(_MODE_BADGES.get(past_answer.mode, past_answer.mode))
+                st.write(style_inference_markers(past_answer.answer))
                 if past_answer.has_answer:
                     with st.expander("📎 Sources"):
                         st.text(past_answer.formatted_sources)
@@ -262,7 +286,8 @@ with col_main:
                 answer = None
 
             if answer is not None:
-                st.write(answer.answer)
+                st.caption(_MODE_BADGES.get(answer.mode, answer.mode))
+                st.write(style_inference_markers(answer.answer))
 
                 if answer.has_answer:
                     with st.expander("📎 Sources", expanded=True):

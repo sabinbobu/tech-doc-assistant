@@ -138,6 +138,7 @@ def generate_answer(
             answer="No documents have been ingested yet. Please run the ingestion pipeline first.",
             sources=[],
             has_answer=False,
+            mode=plan.mode,
         )
 
     # ── Step 3: Rerank down to the final top-k ──
@@ -189,6 +190,7 @@ def generate_answer(
         answer=answer_text,
         sources=sources,
         has_answer=has_answer,
+        mode=plan.mode,
     )
 
 
@@ -257,7 +259,13 @@ def _generate_structural_answer(
         has_answer = any(load_document_outline(filename) for filename in available)
         answer_text = render_toc_for_all_documents(source_filenames)
 
-    return Answer(question=question, answer=answer_text, sources=[], has_answer=has_answer)
+    return Answer(
+        question=question,
+        answer=answer_text,
+        sources=[],
+        has_answer=has_answer,
+        mode="structural",
+    )
 
 
 def _call_llm(

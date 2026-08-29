@@ -6,6 +6,8 @@ Everything before this — ingestion, chunking, embedding, retrieval —
 was building up to producing this object.
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -48,6 +50,15 @@ class Answer(BaseModel):
     sources: list[RetrievedContext] = Field(description="Chunks used to generate the answer")
     has_answer: bool = Field(
         description="False if the retrieved context didn't contain enough information"
+    )
+    mode: Literal["lookup", "procedural", "structural"] = Field(
+        default="lookup",
+        description=(
+            "How this question was routed (src/retrieval/query_plan.py) — which strategy "
+            "produced this answer. The UI uses this to label the answer and to know whether "
+            "to look for (Inferred)/(Not specified) markers, which only 'procedural' answers "
+            "are prompted to emit."
+        ),
     )
 
     @property
