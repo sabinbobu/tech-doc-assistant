@@ -254,10 +254,11 @@ RAG answers should be deterministic and factual. Same question should give same 
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `OPENAI_API_KEY` | Yes | — | OpenAI API key |
+| `OPENAI_API_KEY` | Yes | — | OpenAI API key (also used for embeddings regardless of `LLM_PROVIDER`) |
 | `ANTHROPIC_API_KEY` | No | — | Anthropic API key (if using Claude) |
-| `LLM_PROVIDER` | No | `openai` | `openai` or `anthropic` |
-| `LLM_MODEL` | No | `gpt-4o-mini` | Model name |
+| `OPENROUTER_API_KEY` | No | — | OpenRouter API key (if using `LLM_PROVIDER=openrouter`) |
+| `LLM_PROVIDER` | No | `openai` | `openai`, `anthropic`, or `openrouter` |
+| `LLM_MODEL` | No | `gpt-4o-mini` | Model name (an OpenRouter model slug, e.g. `deepseek/deepseek-chat-v3.1:free`, when `LLM_PROVIDER=openrouter`) |
 | `EMBEDDING_MODEL` | No | `text-embedding-3-small` | Embedding model |
 | `CHUNK_SIZE` | No | `1000` | Characters per chunk |
 | `CHUNK_OVERLAP` | No | `200` | Overlap between chunks |
