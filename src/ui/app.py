@@ -1,36 +1,26 @@
 """
-Streamlit web interface for the Technical Documentation Assistant.
+Technical Documentation Assistant — Streamlit web UI.
 
-WHY STREAMLIT:
-Streamlit turns Python scripts into web apps with minimal boilerplate.
-No HTML, no JavaScript, no REST API needed.
-For a portfolio project, it lets you focus on the AI logic rather than
-frontend engineering. In a real BMW project you'd have a proper frontend —
-but for demonstrating RAG capabilities, Streamlit is the industry standard.
+A RAG chatbot for technical PDFs. Upload documents, ask questions, get cited answers.
 
-RUN WITH:
-    uv run streamlit run src/ui/app.py
+LAYOUT: Real st.sidebar (documents, scope, config) + full-width main area (transcript).
+st.chat_input is top-level, so Streamlit pins it to the viewport bottom.
 
-ARCHITECTURE:
-This file is intentionally thin — it only handles:
-  1. UI rendering and state management
-  2. Calling the pipeline functions you already built
-
-All heavy logic stays in src/ingestion/, src/chunking/, src/embedding/,
-src/generation/. The UI is just a face on top of the pipeline.
-
-ANALOGY:
-This is like your diagnostic display in an automotive tool —
-it shows state and accepts commands, but the real work happens
-in the ECU firmware underneath.
+SESSION STATE:
+- turns: list[ChatTurn] — conversation history (question, answer, timing, scope)
+- processing: bool — ingestion in progress (disables upload)
+- ingestion_result: dict | None — last successful upload details
 """
 
 import logging
 import tempfile
+import time
+from dataclasses import dataclass
+from pathlib import Path
 
 import streamlit as st
 
-from src.chunking.chunker import chunk_document, get_chunk_stats
+from src.chunking.chunker import chunk_document
 from src.chunking.cleaner import clean_document
 from src.embedding.vector_store import (
     embed_chunks,
@@ -41,273 +31,185 @@ from src.embedding.vector_store import (
 )
 from src.generation.generator import generate_answer
 from src.ingestion.pdf_reader import extract_text_from_pdf
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-
-# ── Page configuration ──
-# Must be the first Streamlit call in the script
-st.set_page_config(
-    page_title="Technical Documentation Assistant",
-    page_icon="📚",
-    layout="wide",
+from src.ui.components import (
+    render_empty_state,
+    render_sidebar,
+    render_turn,
 )
 
-
-# ── Helper functions ──
-
-
-_MODE_BADGES = {
-    "lookup": "🔍 Lookup",
-    "procedural": "🛠️ Procedural (synthesized)",
-    "structural": "📑 Structural (document outline)",
-}
-
-# Markers the synthesis prompt (SYNTHESIS_SYSTEM_PROMPT) is instructed to emit on
-# procedural answers — see src/generation/prompts.py. Styling them distinctly is the
-# whole point of the labeled-inference convention: a developer skimming a generated
-# configuration procedure needs to see at a glance which steps are cited fact versus
-# engineering judgment versus a value the documentation genuinely doesn't give, not
-# discover the difference only by reading every word.
-_INFERRED_MARKER = "(Inferred)"
-_NOT_SPECIFIED_MARKER = "(Not specified — verify against your design)"
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
-def style_inference_markers(text: str) -> str:
-    """Highlight labeled-inference markers so they stand out from cited fact."""
-    text = text.replace(_INFERRED_MARKER, f":orange[{_INFERRED_MARKER}]")
-    text = text.replace(_NOT_SPECIFIED_MARKER, f":red[{_NOT_SPECIFIED_MARKER}]")
-    return text
-
-
-def get_document_count() -> int:
+@dataclass
+class ChatTurn:
     """
-    Check how many vectors are stored in ChromaDB.
+    A single turn in the conversation.
 
-    This is our "is the system ready?" signal.
-    0 vectors = nothing ingested = user can't query yet.
+    A mutable dataclass, not a NamedTuple — render_turn's thumbs up/down
+    buttons mutate `feedback` in place on the instance stored in
+    st.session_state.turns.
     """
+
+    question: str
+    answer: any  # Answer pydantic model
+    duration_s: float
+    scope: list[str] | None
+    feedback: int | None = None
+
+
+def init_session_state() -> None:
+    """Initialize session state keys if not present."""
+    if "turns" not in st.session_state:
+        st.session_state.turns = []
+    if "processing" not in st.session_state:
+        st.session_state.processing = False
+    if "ingestion_result" not in st.session_state:
+        st.session_state.ingestion_result = None
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_index_snapshot() -> dict:
+    """
+    Get the current index state: document count and per-document chunk counts.
+
+    Cached with 60s TTL and no spinner. Invalidated explicitly after ingestion
+    (see run_ingestion_pipeline). The ttl is belt-and-braces since st.cache_data
+    is process-global and another browser tab's upload wouldn't otherwise
+    invalidate it.
+    """
+    collection = get_or_create_collection(get_chroma_client())
+    chunk_count = collection.count()
+
+    if chunk_count == 0:
+        return {"chunk_count": 0, "documents": []}
+
+    docs = list_indexed_documents()
+    return {"chunk_count": chunk_count, "documents": docs}
+
+
+def run_ingestion_pipeline(pdf_bytes: bytes, display_name: str) -> dict:
+    """
+    Ingest a PDF: extract, clean, chunk, embed, and store.
+
+    Args:
+        pdf_bytes: Raw PDF file content.
+        display_name: User-facing filename (e.g., "user-upload.pdf").
+
+    Returns:
+        {"filename": str, "pages": int, "chunks": int, "avg_chunk_size": float}
+
+    Raises:
+        Any exception from the pipeline (will be caught and displayed as st.error).
+    """
+    tmp_path = None
     try:
-        client = get_chroma_client()
-        collection = get_or_create_collection(client)
-        return collection.count()
-    except Exception:
-        return 0
+        # Write to a temporary file — the pipeline expects a file path.
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(pdf_bytes)
+            tmp_path = tmp.name
+
+        # Run the pipeline.
+        doc = extract_text_from_pdf(tmp_path, display_name=display_name)
+        cleaned = clean_document(doc)
+        chunks = chunk_document(cleaned)
+
+        # Compute stats before embedding.
+        total_chunks = len(chunks)
+        avg_size = sum(len(c.text) for c in chunks) / total_chunks if total_chunks > 0 else 0
+
+        # Embed and store.
+        embed_chunks(chunks)
+
+        # Persist the document's TOC (pymupdf outline) as a JSON sidecar so
+        # "structural" mode (see src/retrieval/structure.py) can answer
+        # table-of-contents questions for this document without a chunk
+        # retrieval that would never reconstruct a whole TOC from fragments.
+        save_document_outline(cleaned)
+
+        # Invalidate the cache so the sidebar updates.
+        get_index_snapshot.clear()
+
+        return {
+            "filename": display_name,
+            "pages": len(doc.pages),
+            "chunks": total_chunks,
+            "avg_chunk_size": avg_size,
+        }
+
+    finally:
+        # Clean up temp file — the comment in the old code was wrong about
+        # tempfile.NamedTemporaryFile(delete=False) handling cleanup.
+        if tmp_path:
+            Path(tmp_path).unlink(missing_ok=True)
 
 
-def run_ingestion_pipeline(pdf_path: str, display_name: str | None = None) -> dict:
-    """
-    Run the full ingestion pipeline on a PDF and return stats.
-
-    Returns a dict with processing statistics for display in the UI.
-    Separating this from the UI code makes it easier to test and reuse.
-
-    display_name should be the original filename the user uploaded — pdf_path
-    itself is a tempfile path (see the caller below) and must never leak into
-    citations shown to the user.
-    """
-    doc = extract_text_from_pdf(pdf_path, display_name=display_name)
-    cleaned = clean_document(doc)
-    chunks = chunk_document(cleaned)
-    stats = get_chunk_stats(chunks)
-    embed_chunks(chunks)
-    save_document_outline(cleaned)
-    return {
-        "filename": doc.filename,
-        "pages": len(doc.pages),
-        "chunks": stats.get("total_chunks", 0),
-        "avg_chunk_size": stats.get("avg_chars", 0),
-    }
-
-
-# ── Session state initialization ──
-# Streamlit reruns the entire script on every interaction.
-# st.session_state persists values across reruns — like static variables
-# in an embedded interrupt handler.
-if "processing" not in st.session_state:
-    st.session_state.processing = False
-
-if "ingestion_result" not in st.session_state:
-    st.session_state.ingestion_result = None
-
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []  # list of (question, answer) tuples
-
-
-# ── Layout ──
-st.title("📚 Technical Documentation Assistant")
-st.caption("Upload technical PDFs and ask questions in plain English.")
-
-# Two-column layout: sidebar for ingestion, main area for Q&A
-col_sidebar, col_main = st.columns([1, 2])
-
-
-# ══════════════════════════════════════════
-# LEFT COLUMN: Document Management
-# ══════════════════════════════════════════
-with col_sidebar:
-    st.subheader("📄 Documents")
-
-    # ── System status indicator ──
-    doc_count = get_document_count()
-    indexed_documents = list_indexed_documents() if doc_count > 0 else []
-
-    if doc_count == 0:
-        st.error("⚠️ No documents loaded. Upload a PDF to get started.")
-    else:
-        st.success(f"✅ Ready — {doc_count:,} chunks indexed")
-        for doc in indexed_documents:
-            st.caption(f"📄 {doc['filename']} — {doc['chunk_count']:,} chunks")
-
-    st.divider()
-
-    # ── PDF upload ──
-    st.markdown("**Upload a new document**")
-    uploaded_file = st.file_uploader(
-        label="Choose a PDF",
-        type=["pdf"],
-        help="Upload a technical manual, standard, or specification.",
-        disabled=st.session_state.processing,
+def main() -> None:
+    """Streamlit app entry point."""
+    st.set_page_config(
+        page_title="Technical Documentation Assistant",
+        page_icon="📚",
+        layout="wide",
     )
 
-    if uploaded_file is not None:
-        st.info(f"Selected: `{uploaded_file.name}` ({uploaded_file.size / 1024:.1f} KB)")
+    st.title("📚 Technical Documentation Assistant")
+    st.caption("Upload technical PDFs and ask questions in plain English.")
 
-        if st.button(
-            "⚙️ Process Document",
-            disabled=st.session_state.processing,
-            use_container_width=True,
-        ):
-            st.session_state.processing = True
-            st.session_state.ingestion_result = None
+    init_session_state()
 
-            # Save uploaded file to a temp location
-            # Streamlit gives us a BytesIO object — we need a real file path
-            # for PyMuPDF to open. tempfile handles cleanup automatically.
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-                tmp_file.write(uploaded_file.getvalue())
-                tmp_path = tmp_file.name
+    snapshot = get_index_snapshot()
+    source_filenames = render_sidebar(snapshot)
 
-            with st.spinner(f"Processing {uploaded_file.name}..."):
-                try:
-                    result = run_ingestion_pipeline(tmp_path, display_name=uploaded_file.name)
-                    st.session_state.ingestion_result = result
-                    st.session_state.processing = False
-                    st.rerun()  # Refresh to update the status indicator
-                except Exception as e:
-                    st.error(f"Processing failed: {e}")
-                    st.session_state.processing = False
+    st.markdown("## Conversation")
 
-    # Show ingestion result if available
-    if st.session_state.ingestion_result:
-        r = st.session_state.ingestion_result
-        st.success("✅ Document processed successfully!")
-        st.markdown(f"""
-        **Results:**
-        - File: `{r["filename"]}`
-        - Pages extracted: `{r["pages"]}`
-        - Chunks created: `{r["chunks"]}`
-        - Avg chunk size: `{r["avg_chunk_size"]} chars`
-        """)
+    # Replay history.
+    for turn in st.session_state.turns:
+        render_turn(turn)
 
+    # Empty state or example questions.
+    if not st.session_state.turns:
+        example_question = render_empty_state(snapshot)
+        if example_question:
+            st.session_state.pending_question = example_question
+            st.rerun()
 
-# ══════════════════════════════════════════
-# RIGHT COLUMN: Q&A Interface
-# ══════════════════════════════════════════
-with col_main:
-    st.subheader("💬 Ask a Question")
-
-    # Show chat history — previous Q&A pairs in this session
-    if st.session_state.chat_history:
-        for past_question, past_answer in st.session_state.chat_history:
-            with st.chat_message("user"):
-                st.write(past_question)
-            with st.chat_message("assistant"):
-                st.caption(_MODE_BADGES.get(past_answer.mode, past_answer.mode))
-                st.write(style_inference_markers(past_answer.answer))
-                if past_answer.has_answer:
-                    with st.expander("📎 Sources"):
-                        st.text(past_answer.formatted_sources)
-                        # Show retrieved chunks with their distances
-                        for source in past_answer.sources:
-                            rerank_note = (
-                                f", rerank: {source.rerank_score:.2f}"
-                                if source.rerank_score is not None
-                                else ""
-                            )
-                            st.markdown(
-                                f"**{source.citation}** "
-                                f"*(relevance: {1 - source.distance:.2f}{rerank_note})*"
-                            )
-                            st.caption(source.text[:300] + "...")
-
-    # ── Document scope picker ──
-    # All uploaded PDFs share one vector store, so without this a question
-    # about one document could pull in chunks from an unrelated one.
-    # Defaulting to "all" preserves the previous unscoped behavior.
-    selected_documents: list[str] = []
-    if indexed_documents:
-        filenames = [doc["filename"] for doc in indexed_documents]
-        selected_documents = st.multiselect(
-            "Search within",
-            options=filenames,
-            default=filenames,
-            help="Limit retrieval to specific documents. Defaults to all loaded documents.",
-        )
-
-    # ── Question input ──
-    # Disable if no documents are loaded — user can't query an empty system
+    # New question input (top-level, so Streamlit pins it to viewport bottom).
     question = st.chat_input(
-        placeholder="e.g. What is a deviation in MISRA compliance?",
-        disabled=(doc_count == 0),
+        "Ask a question...",
+        disabled=(snapshot["chunk_count"] == 0),
     )
+
+    # st.chat_input can't be pre-filled programmatically, so an example-question
+    # click (render_empty_state above) stashes its text in pending_question
+    # instead and we treat it as this run's submitted question here.
+    if not question and "pending_question" in st.session_state:
+        question = st.session_state.pop("pending_question")
 
     if question:
-        # Show the user's question immediately
-        with st.chat_message("user"):
-            st.write(question)
+        # Echo the user's question.
+        st.chat_message("user").write(question)
 
-        # None (all indexed documents) is used when the user hasn't
-        # narrowed the scope, or has selected everything anyway.
-        source_filenames = (
-            selected_documents
-            if selected_documents and len(selected_documents) < len(indexed_documents)
-            else None
-        )
+        # Generate answer.
+        start = time.time()
+        try:
+            with st.spinner("Searching documentation..."):
+                answer = generate_answer(question, source_filenames=source_filenames)
+            duration_s = time.time() - start
 
-        # Generate and display the answer
-        with st.chat_message("assistant"):
-            try:
-                with st.spinner("Searching documentation..."):
-                    answer = generate_answer(question, source_filenames=source_filenames)
-            except Exception as e:
-                st.error(f"Something went wrong while generating the answer: {e}")
-                answer = None
+            # Append to history and re-run so the new turn renders via render_turn.
+            turn = ChatTurn(
+                question=question,
+                answer=answer,
+                duration_s=duration_s,
+                scope=source_filenames,
+            )
+            st.session_state.turns.append(turn)
+            st.rerun()
 
-            if answer is not None:
-                st.caption(_MODE_BADGES.get(answer.mode, answer.mode))
-                st.write(style_inference_markers(answer.answer))
+        except Exception as e:
+            st.error(f"Failed to generate answer: {e}")
+            logger.exception("Answer generation failed")
 
-                if answer.has_answer:
-                    with st.expander("📎 Sources", expanded=True):
-                        st.text(answer.formatted_sources)
-                        for source in answer.sources:
-                            rerank_note = (
-                                f", rerank: {source.rerank_score:.2f}"
-                                if source.rerank_score is not None
-                                else ""
-                            )
-                            st.markdown(
-                                f"**{source.citation}** "
-                                f"*(relevance: {1 - source.distance:.2f}{rerank_note})*"
-                            )
-                            st.caption(source.text[:300] + "...")
-                else:
-                    st.warning(
-                        "The loaded documents don't contain information about this topic. "
-                        "Try uploading more relevant documentation."
-                    )
 
-                # Save to chat history for display on next rerun
-                st.session_state.chat_history.append((question, answer))
+if __name__ == "__main__":
+    main()
