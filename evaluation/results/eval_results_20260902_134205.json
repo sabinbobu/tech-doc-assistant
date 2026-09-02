@@ -1,0 +1,221 @@
+{
+  "timestamp": "20260902_134205",
+  "total_questions": 30,
+  "scores": {
+    "faithfulness": 0.9158,
+    "answer_relevancy": 0.8835,
+    "context_precision": 0.852
+  },
+  "per_question": [
+    {
+      "question": "What is a deviation in MISRA compliance?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "A deviation in MISRA compliance refers to an authorized exception to the guidelines that allows for certain violations under specific circumstances. It is essential to establish a clear understanding ...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What are the two categories of MISRA guidelines?",
+      "category": "classification",
+      "has_answer": true,
+      "answer_preview": "The two categories of MISRA guidelines are Required and Advisory. Required guidelines can only be violated when supported by a deviation, while Advisory guidelines are recommendations that do not requ...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What is a violation in the context of MISRA compliance?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "A violation in the context of MISRA compliance refers to a situation where a guideline from the MISRA Guidelines is not adhered to in the code. Violations can occur due to various reasons, and they ma...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What is required to claim MISRA compliance for a software component?",
+      "category": "process",
+      "has_answer": true,
+      "answer_preview": "To claim MISRA compliance for a software component, the following requirements must be met:\n\n1. Development must be conducted in accordance with a disciplined software development process.\n2. It must ...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What is a permit in MISRA compliance?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "A permit in MISRA compliance refers to a deviation permit, which defines a use case under which a violation of the MISRA guidelines may be justified. It specifies the documentation and process require...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "Can a mandatory MISRA guideline be deviated from?",
+      "category": "process",
+      "has_answer": true,
+      "answer_preview": "A Mandatory guideline may not be re-categorized in any way, which implies that deviation from a Mandatory guideline is not permitted [Source: MISRA-Compliance-2020.pdf, page 23, Section: 5.1 Re-catego...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What should a MISRA compliance summary document contain?",
+      "category": "process",
+      "has_answer": true,
+      "answer_preview": "A MISRA compliance summary document should contain the following:\n\n1. The guideline compliance summary, declaring the level of compliance which is being claimed;\n2. Details of all approved deviation p...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What is the difference between a guideline and a rule in MISRA?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "A guideline in MISRA is a broader term that encompasses both rules and directives. A rule is a specific type of guideline that imposes complete, objective, unambiguous requirements on the source code,...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What is a guideline enforcement plan (GEP)?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "A guideline enforcement plan (GEP) is a record of the methods used to provide enforcement of each guideline. It is fundamental to achieving compliance and should list each guideline within The Guideli...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What are the two types of analysis scope for a MISRA rule?",
+      "category": "classification",
+      "has_answer": true,
+      "answer_preview": "The two types of analysis scope for a MISRA rule are \"Single Translation Unit\" and \"System\" [Source: MISRA-Compliance-2020.pdf, page 16]....",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What does it mean for a MISRA rule to be undecidable?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "A MISRA rule is considered undecidable if an analysis tool cannot guarantee to respond to the compliance question with a definitive \u201cYes\u201d or \u201cNo\u201d in every situation. In some cases, the tool may only b...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What information should a deviation record include?",
+      "category": "process",
+      "has_answer": true,
+      "answer_preview": "A deviation record should include the following information:\n\n1. The guideline(s) being violated.\n2. A concise description of the circumstances in which a violation is acceptable.\n3. The reason why th...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What are the three sources from which deviation permits may originate?",
+      "category": "classification",
+      "has_answer": true,
+      "answer_preview": "The three sources from which deviation permits may originate are:\n1. Public deviation permits, published by MISRA;\n2. Acquirer deviation permits, produced by an acquirer;\n3. Supplier deviation permits...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What are the acceptable reasons for justifying a MISRA deviation?",
+      "category": "classification",
+      "has_answer": true,
+      "answer_preview": "Acceptable reasons for justifying a MISRA deviation include:\n\n1. Code quality, with an emphasis on safety and security issues [Source: MISRA-Compliance-2020.pdf, page 21].\n2. Other unspecified reasons...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "Can a Mandatory guideline be re-categorized to a different category?",
+      "category": "process",
+      "has_answer": true,
+      "answer_preview": "No, a Mandatory guideline may not be re-categorized in any way [Source: MISRA-Compliance-2020.pdf, page 23]....",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What happens to violations of a guideline that has been re-categorized as Disapplied?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "Violations of guidelines re-categorized as Disapplied are disregarded altogether [Source: MISRA-Compliance-2020.pdf, page 24, Section: 5.1 Re-categorization]....",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What is adopted code, and how does it differ from native code?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "Adopted code refers to code derived from outside the scope of the current project, which may not be modified to achieve compliance with MISRA Guidelines. It typically includes code from sources such a...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "Is Standard Library code required to comply with MISRA Guidelines?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "Standard Library code is not required to comply with MISRA Guidelines. However, guidelines that rely on the interface provided by standard header declarations and macros are still applicable to those ...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What are the four levels of compliance that can be claimed in a guideline compliance summary?",
+      "category": "classification",
+      "has_answer": true,
+      "answer_preview": "The four levels of compliance that can be claimed in a guideline compliance summary are:\n1. Compliant \u2014 There are no violations of the guideline within the project;\n2. Deviations \u2014 There are violation...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What artefacts must a supplier deliver to the acquirer to support a claim of MISRA compliance?",
+      "category": "process",
+      "has_answer": true,
+      "answer_preview": "The supplier must deliver the following artefacts to the acquirer to support a claim of MISRA compliance:\n\n1. The guideline enforcement plan.\n2. Documentation demonstrating how compliance has been enf...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What is a guideline re-categorization plan (GRP)?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "A guideline re-categorization plan (GRP) is a policy agreed between the acquirer and the supplier whereby the MISRA category assigned to each guideline within The Guidelines is reviewed and, in some c...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What are the sources adopted code is typically derived from?",
+      "category": "classification",
+      "has_answer": true,
+      "answer_preview": "Adopted code is typically derived from the following sources:\n- The Standard Library \u2014 The library code and header files specified by The Language Standard and provided with the compiler;\n- Device dri...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What should you do if the ink level is below the lower line on an ink tank?",
+      "category": "process",
+      "has_answer": true,
+      "answer_preview": "If the ink level is below the lower line on an ink tank, you need to refill it to the upper line on the ink tank. Continued use of the product when the ink level is below the lower line could damage t...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "How do you check the printer's nozzles using the product's buttons?",
+      "category": "process",
+      "has_answer": true,
+      "answer_preview": "To check the printer's nozzles using the product's buttons, follow these steps:\n\n1. Press the power button to turn the product off [Source: EpsonPrinterDocumentation.pdf, page 119].\n2. Load a few shee...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What does it mean if the printer's power light is flashing and the ink light is on?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "If the printer's power light is flashing, it indicates that the product is busy, and you should wait for the power light to stop flashing before turning off the product [Source: EpsonPrinterDocumentat...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What should you do if the paper light on the printer is flashing?",
+      "category": "process",
+      "has_answer": true,
+      "answer_preview": "If the paper light on the printer is flashing, it indicates that paper is jammed in the product. You should remove the jammed paper and press the B&W copy button or the color copy button to clear the ...",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What should you do if multiple pages feed into the printer at once?",
+      "category": "process",
+      "has_answer": true,
+      "answer_preview": "1. Remove the paper that is currently loaded in the printer [Source: EpsonPrinterDocumentation.pdf, page 143]. \n2. Fan the edges of the paper to separate the sheets [Source: EpsonPrinterDocumentation....",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What is the scanning resolution of the L220's scanner?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "The scanning resolution of the L220's scanner is 600 dpi for the main scan and 1200 dpi for the sub scan [Source: EpsonPrinterDocumentation.pdf, page 169]....",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What interface does the printer use to connect to a computer?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "The printer uses a Hi-Speed USB interface to connect to a computer [Source: EpsonPrinterDocumentation.pdf, page 172]....",
+      "contexts_retrieved": 8
+    },
+    {
+      "question": "What is the operating temperature range for the printer?",
+      "category": "definition",
+      "has_answer": true,
+      "answer_preview": "The operating temperature range for the printer is 50 to 95 \u00b0F (10 to 35 \u00b0C) [Source: EpsonPrinterDocumentation.pdf, page 172]....",
+      "contexts_retrieved": 8
+    }
+  ]
+}

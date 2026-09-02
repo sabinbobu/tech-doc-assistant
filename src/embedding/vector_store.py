@@ -112,7 +112,19 @@ def embed_chunks(chunks: list[Chunk]) -> None:
 
     # Build the three parallel lists ChromaDB expects
     ids = [f"chunk_{chunk.chunk_index}_{chunk.source_filename}" for chunk in chunks]
-    documents = [chunk.text for chunk in chunks]
+    # Prepend a source/section breadcrumb to the text that actually gets
+    # embedded and BM25-indexed — chunk.section already existed as metadata
+    # but neither retrieval arm ever saw it, which is why a terse spec-table
+    # entry like "Interface type / Hi-Speed USB..." couldn't outrank an
+    # unrelated but more prose-like passage (measured: recall@8 = 0.00 on
+    # both Epson spec-lookup questions in evaluation/dataset.py). No
+    # breadcrumb for chunks with no section (None) — unchanged behavior.
+    documents = [
+        f"{chunk.source_filename} > {chunk.section} > page {chunk.page_number}\n\n{chunk.text}"
+        if chunk.section
+        else chunk.text
+        for chunk in chunks
+    ]
     metadatas = [
         {
             "source_filename": chunk.source_filename,
@@ -271,6 +283,23 @@ def _vector_search(
     return retrieved
 
 
+# `.lower().split()` alone leaves sentence punctuation glued to the
+# adjacent word ("scanner?", "content,"), so a query ending in "?" loses
+# its own last word's BM25 signal against a corpus whose commas/periods
+# fragment the same words differently. Verified concretely: this dropped
+# an exact-match spec chunk from BM25 rank 61 to outside the top 60
+# candidates for the query "...L220's scanner?" purely on the dangling
+# "?". Keeps internal hyphens/periods/apostrophes ("bts7200-2epa",
+# "rule 8.4", "l220's") intact — this corpus's identifiers depend on
+# them, so only *leading/trailing* punctuation should be stripped, not
+# every non-alphanumeric character.
+_TOKEN_RE = re.compile(r"[a-z0-9]+(?:[-.'][a-z0-9]+)*")
+
+
+def _tokenize(text: str) -> list[str]:
+    return _TOKEN_RE.findall(text.lower())
+
+
 def _keyword_search(
     collection: chromadb.Collection,
     query_text: str,
@@ -298,9 +327,9 @@ def _keyword_search(
     if not documents:
         return []
 
-    tokenized_corpus = [doc.lower().split() for doc in documents]
+    tokenized_corpus = [_tokenize(doc) for doc in documents]
     bm25 = BM25Okapi(tokenized_corpus)
-    scores = bm25.get_scores(query_text.lower().split())
+    scores = bm25.get_scores(_tokenize(query_text))
 
     ranked_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
     top_indices = [i for i in ranked_indices if scores[i] > 0][:n_results]
