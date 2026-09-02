@@ -80,8 +80,14 @@ def call_llm(
 def _call_openai(system_prompt: str, user_prompt: str, model: str, max_tokens: int) -> str:
     """Call OpenAI API and return response text."""
     from openai import OpenAI
+    from opik.integrations.openai import track_openai
 
-    client = OpenAI(api_key=settings.openai_api_key)
+    # track_openai wraps the SDK client so every completion becomes an "llm"
+    # span under whatever @opik.track span is currently active — model, token
+    # counts and cost included, none of which we'd get from a hand-rolled span.
+    # This is why no call site in this codebase carries @opik.track(type="llm"):
+    # instrumenting the same call twice would nest a duplicate span inside it.
+    client = track_openai(OpenAI(api_key=settings.openai_api_key))
 
     response = client.chat.completions.create(
         model=model,
@@ -102,8 +108,9 @@ def _call_anthropic(system_prompt: str, user_prompt: str, model: str, max_tokens
     """Call Anthropic API and return response text."""
     from anthropic import Anthropic
     from anthropic.types import TextBlock
+    from opik.integrations.anthropic import track_anthropic
 
-    client = Anthropic(api_key=settings.anthropic_api_key)
+    client = track_anthropic(Anthropic(api_key=settings.anthropic_api_key))
 
     response = client.messages.create(
         model=model,
@@ -141,8 +148,13 @@ def _call_openrouter(system_prompt: str, user_prompt: str, model: str, max_token
     dedicated OpenRouter SDK.
     """
     from openai import OpenAI
+    from opik.integrations.openai import track_openai
 
-    client = OpenAI(api_key=settings.openrouter_api_key, base_url="https://openrouter.ai/api/v1")
+    # Same OpenAI-compatible wire format, so the same Opik integration applies —
+    # base_url is the only difference, and track_openai doesn't care about it.
+    client = track_openai(
+        OpenAI(api_key=settings.openrouter_api_key, base_url="https://openrouter.ai/api/v1")
+    )
 
     response = client.chat.completions.create(
         model=model,

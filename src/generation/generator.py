@@ -18,6 +18,8 @@ This is why Steps 3 and 4 matter so much — garbage retrieval = garbage answers
 
 import logging
 
+import opik
+
 from src.config import settings
 from src.embedding.vector_store import (
     list_indexed_documents,
@@ -69,6 +71,7 @@ def _is_refusal(answer_text: str) -> bool:
     return len(normalized) <= len(NO_ANSWER_PHRASE) + 40
 
 
+@opik.track(name="rag_answer", project_name="Tech-Doc-Assistant")
 def generate_answer(
     question: str,
     n_results: int | None = None,

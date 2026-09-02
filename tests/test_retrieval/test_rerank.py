@@ -133,3 +133,47 @@ class TestGetModel:
         assert first is None
         assert second is None
         mock_cross_encoder.assert_called_once()
+
+
+class TestWarmUp:
+    """
+    warm_up() moves the ~12.4s model load to process startup. Its whole value
+    is that a long-lived process (Streamlit, MCP server) calls it before
+    serving anyone — which means it runs at the least convenient possible
+    moment to raise, and must not.
+    """
+
+    def setup_method(self):
+        rerank_module._model = None
+        rerank_module._model_load_failed = False
+
+    def test_returns_true_when_model_loads(self):
+        with patch.object(rerank_module, "_get_model", return_value=MagicMock()):
+            assert rerank_module.warm_up() is True
+
+    def test_returns_false_without_raising_when_load_fails(self):
+        """A failed warm-up degrades to hybrid search order — it must never
+        take down the app that called it at startup."""
+        with patch.object(rerank_module, "_get_model", return_value=None):
+            assert rerank_module.warm_up() is False
+
+    def test_returns_false_when_reranking_disabled(self):
+        """Nothing to warm if the kill switch is off — and warming anyway
+        would pay the load cost for a model that's never used."""
+        with patch.object(rerank_module.settings, "reranking_enabled", False):
+            with patch.object(rerank_module, "_get_model") as mock_get_model:
+                assert rerank_module.warm_up() is False
+            mock_get_model.assert_not_called()
+
+    def test_actually_loads_the_model_once(self):
+        """warm_up() must do the loading itself — if it deferred, the first
+        query would still pay for it and the fix would be a no-op."""
+        fake_model = MagicMock()
+        with patch(
+            "sentence_transformers.CrossEncoder", return_value=fake_model
+        ) as mock_cross_encoder:
+            assert rerank_module.warm_up() is True
+            assert rerank_module.warm_up() is True
+
+        assert rerank_module._model is fake_model
+        mock_cross_encoder.assert_called_once()
