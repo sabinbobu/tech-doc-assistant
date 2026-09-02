@@ -101,6 +101,7 @@ def _call_openai(system_prompt: str, user_prompt: str, model: str, max_tokens: i
 def _call_anthropic(system_prompt: str, user_prompt: str, model: str, max_tokens: int) -> str:
     """Call Anthropic API and return response text."""
     from anthropic import Anthropic
+    from anthropic.types import TextBlock
 
     client = Anthropic(api_key=settings.anthropic_api_key)
 
@@ -114,7 +115,21 @@ def _call_anthropic(system_prompt: str, user_prompt: str, model: str, max_tokens
         ],
     )
 
-    return response.content[0].text
+    # A response block is a union — TextBlock, ThinkingBlock, ToolUseBlock and
+    # others — and only TextBlock has `.text`. With this call's parameters (no
+    # tools, no extended thinking) the first block is always a TextBlock, so
+    # the old unconditional `.content[0].text` worked. It would break with an
+    # opaque AttributeError the moment someone enables thinking or tools here.
+    # Checking makes that a clear error instead, consistent with this module's
+    # stated contract: raise on failure rather than degrade silently.
+    block = response.content[0]
+    if not isinstance(block, TextBlock):
+        raise RuntimeError(
+            f"Expected a text block from Anthropic, got {type(block).__name__}. "
+            "This function assumes a plain text completion (no tool use, no "
+            "extended thinking)."
+        )
+    return block.text
 
 
 def _call_openrouter(system_prompt: str, user_prompt: str, model: str, max_tokens: int) -> str:

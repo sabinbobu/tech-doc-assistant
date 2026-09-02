@@ -26,23 +26,35 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      # Install via uv against the committed uv.lock, NOT `pip install -e .`.
+      # WHY THIS MATTERS: pyproject declares open lower bounds ("mcp>=1.0.0"),
+      # so pip resolved whatever was newest on the day CI ran and silently
+      # ignored uv.lock. CI was therefore type-checking a different dependency
+      # set than any developer had locally — mcp's ToolAnnotations, for one,
+      # renamed its fields between the locked version and the newest, so the
+      # same code passed mypy locally and failed here. `--locked` installs
+      # exactly what uv.lock pins and fails loudly if the lock is stale,
+      # which is what makes local and CI reproduce each other.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
+          enable-cache: true
+          # Pinned, not just ">=3.11" from pyproject: uv would otherwise take
+          # the newest Python satisfying that floor, reintroducing exactly the
+          # local-vs-CI drift this change exists to remove. 3.11 is what the
+          # project develops against.
           python-version: "3.11"
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: uv sync --locked --extra dev
 
       - name: Lint with Ruff
         run: |
-          ruff check src/ tests/
-          ruff format --check src/ tests/
+          uv run ruff check src/ tests/
+          uv run ruff format --check src/ tests/
 
       - name: Type check with MyPy
-        run: mypy src/ --ignore-missing-imports
+        run: uv run mypy src/ --ignore-missing-imports
 
       - name: Run tests
-        run: pytest tests/ -v --cov=src --cov-report=term-missing
+        run: uv run pytest tests/ -v --cov=src --cov-report=term-missing

@@ -26,8 +26,10 @@ import json
 import logging
 import re
 from pathlib import Path
+from typing import Literal
 
 import chromadb
+from chromadb.api.types import Metadata, Where
 from chromadb.utils import embedding_functions
 from rank_bm25 import BM25Okapi
 
@@ -44,13 +46,20 @@ COLLECTION_NAME = "tech_docs"
 # Where per-document outlines are persisted — see save_document_outline().
 
 
-def get_chroma_client() -> chromadb.PersistentClient:
+def get_chroma_client() -> chromadb.api.ClientAPI:
     """
     Create or connect to a persistent ChromaDB instance.
 
     PersistentClient saves data to disk — vectors survive process restarts.
     This means you only embed your documents ONCE, not on every run.
     Like flashing config to EEPROM vs. recalculating every boot.
+
+    NOTE ON THE RETURN TYPE: `chromadb.PersistentClient` is a factory
+    *function*, not a class — annotating with it is invalid (mypy:
+    'Function "chromadb.PersistentClient" is not valid as a type'), and it
+    silently degraded every downstream call on this client to `Any`, which
+    hid real type errors in this module. `ClientAPI` is what the factory
+    actually declares it returns.
     """
     vectorstore_path = settings.vectorstore_dir
     vectorstore_path.mkdir(parents=True, exist_ok=True)
@@ -61,7 +70,7 @@ def get_chroma_client() -> chromadb.PersistentClient:
 
 
 def get_or_create_collection(
-    client: chromadb.PersistentClient,
+    client: chromadb.api.ClientAPI,
 ) -> chromadb.Collection:
     """
     Get existing collection or create a new one.
@@ -77,7 +86,12 @@ def get_or_create_collection(
 
     collection = client.get_or_create_collection(
         name=COLLECTION_NAME,
-        embedding_function=openai_ef,
+        # Suppressed below: Chroma's own bundled OpenAIEmbeddingFunction does
+        # not satisfy the EmbeddingFunction[...] generic that its own
+        # get_or_create_collection declares. That's an inconsistency inside
+        # chromadb 1.5.8's type surface, not something callers can fix; the
+        # pairing is the one Chroma's own docs prescribe and works at runtime.
+        embedding_function=openai_ef,  # type: ignore[arg-type]
         metadata={"hnsw:space": "cosine"},  # cosine similarity for semantic search
     )
 
@@ -125,7 +139,12 @@ def embed_chunks(chunks: list[Chunk]) -> None:
         else chunk.text
         for chunk in chunks
     ]
-    metadatas = [
+    # Annotated as Chroma's own Metadata alias, not inferred: a plain
+    # list[dict[str, str | int | None]] is NOT assignable to
+    # list[Metadata] (list is invariant in its element type), so without
+    # this the upsert call below fails type checking for a difference
+    # that doesn't exist at runtime.
+    metadatas: list[Metadata] = [
         {
             "source_filename": chunk.source_filename,
             "source_filepath": chunk.source_filepath,
@@ -162,13 +181,20 @@ def embed_chunks(chunks: list[Chunk]) -> None:
     logger.info(f"Done. Collection now has {collection.count()} total vectors.")
 
 
-def _build_source_filter(source_filenames: list[str] | None) -> dict | None:
+def _build_source_filter(source_filenames: list[str] | None) -> Where | None:
     """Build a ChromaDB `where` clause scoping a query to specific documents."""
     if not source_filenames:
         return None
     if len(source_filenames) == 1:
         return {"source_filename": source_filenames[0]}
-    return {"source_filename": {"$in": source_filenames}}
+    # Both the value list and the operator dict are annotated to Chroma's own
+    # expected shapes. Left to inference they'd come out as list[str] and
+    # dict[str, ...] — too narrow and too wide respectively (list is invariant;
+    # the operator key must be the Literal, not plain str), and rejected for a
+    # difference that has no runtime effect.
+    in_values: list[str | int | float | bool] = list(source_filenames)
+    in_clause: dict[Literal["$in", "$nin"], list[str | int | float | bool]] = {"$in": in_values}
+    return {"source_filename": in_clause}
 
 
 def list_indexed_documents() -> list[dict]:
@@ -191,8 +217,12 @@ def list_indexed_documents() -> list[dict]:
 
     result = collection.get(include=["metadatas"])
     counts: dict[str, int] = {}
-    for metadata in result["metadatas"]:
-        filename = metadata.get("source_filename", "Unknown")
+    # `or []` for the type checker (metadatas is Optional in Chroma's return
+    # type); str() because a metadata value is typed as a wide union and
+    # `counts` is keyed by str — every source_filename we write is already a
+    # str, this just proves it to mypy without changing behavior.
+    for metadata in result["metadatas"] or []:
+        filename = str(metadata.get("source_filename", "Unknown"))
         counts[filename] = counts.get(filename, 0) + 1
 
     return [
@@ -254,23 +284,36 @@ def _vector_search(
     collection: chromadb.Collection,
     query_text: str,
     n_results: int,
-    where: dict | None,
+    where: Where | None,
 ) -> list[dict]:
     """Cosine-similarity search — finds chunks that are semantically similar."""
+    # `where=where` rather than the previous `**({"where": where} if where
+    # else {})` splat: Chroma's query() already treats where=None as "no
+    # filter", so the splat bought nothing and made the call untypeable
+    # (mypy can only see `**dict[str, dict]`, not which keyword it fills).
     results = collection.query(
         query_texts=[query_text],
         n_results=min(n_results, collection.count()),
         include=["documents", "metadatas", "distances"],
-        **({"where": where} if where else {}),
+        where=where,
     )
 
     # ChromaDB returns nested lists (one per query) — we only send one query
-    # so we unwrap the first element of each list
+    # so we unwrap the first element of each list.
+    # The three .get()s with `or []` are for the type checker, not runtime:
+    # Chroma types these Optional because `include` decides which are
+    # populated, and we just asked for all three — so they're never None here.
+    documents = results["documents"] or []
+    metadatas = results["metadatas"] or []
+    distances = results["distances"] or []
+    if not documents:
+        return []
+
     retrieved = []
     for text, metadata, distance in zip(
-        results["documents"][0],
-        results["metadatas"][0],
-        results["distances"][0],
+        documents[0],
+        metadatas[0],
+        distances[0],
         strict=True,
     ):
         retrieved.append(
@@ -304,7 +347,7 @@ def _keyword_search(
     collection: chromadb.Collection,
     query_text: str,
     n_results: int,
-    where: dict | None,
+    where: Where | None,
 ) -> list[dict]:
     """
     BM25 keyword search — finds chunks that share exact terms with the query.
@@ -319,10 +362,11 @@ def _keyword_search(
     """
     corpus = collection.get(
         include=["documents", "metadatas"],
-        **({"where": where} if where else {}),
+        where=where,
     )
-    documents = corpus["documents"]
-    metadatas = corpus["metadatas"]
+    # `or []` for the type checker — see the same note in _vector_search.
+    documents = corpus["documents"] or []
+    metadatas = corpus["metadatas"] or []
 
     if not documents:
         return []

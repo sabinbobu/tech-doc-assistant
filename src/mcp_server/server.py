@@ -28,6 +28,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.config import settings
@@ -124,13 +125,13 @@ class AskInput(BaseModel):
 
 @mcp.tool(
     name="docs_search",
-    annotations={
-        "title": "Search Technical Documentation",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    },
+    annotations=ToolAnnotations(
+        title="Search Technical Documentation",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
 )
 async def docs_search(params: SearchInput) -> str:
     """Search indexed technical documentation and return relevant passages.
@@ -214,13 +215,13 @@ async def docs_search(params: SearchInput) -> str:
 
 @mcp.tool(
     name="docs_ask",
-    annotations={
-        "title": "Ask Technical Documentation",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": False,  # LLM responses may vary slightly
-        "openWorldHint": False,
-    },
+    annotations=ToolAnnotations(
+        title="Ask Technical Documentation",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=False,  # LLM responses may vary slightly
+        openWorldHint=False,
+    ),
 )
 async def docs_ask(params: AskInput) -> str:
     """Answer a question using indexed technical documentation with citations.
@@ -285,13 +286,13 @@ async def docs_ask(params: AskInput) -> str:
 
 @mcp.tool(
     name="docs_status",
-    annotations={
-        "title": "Get Documentation Index Status",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    },
+    annotations=ToolAnnotations(
+        title="Get Documentation Index Status",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
 )
 async def docs_status() -> str:
     """Check the status of the documentation index.

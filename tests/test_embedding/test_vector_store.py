@@ -131,7 +131,10 @@ class TestVectorSearch:
 
         query_collection("a question")
 
-        assert "where" not in mock_collection.query.call_args.kwargs
+        # `where=None` rather than an absent kwarg: Chroma's query() defaults
+        # `where` to None, so passing it explicitly is the same call. The
+        # assertion tests the intent (no filter applied), not the call syntax.
+        assert mock_collection.query.call_args.kwargs["where"] is None
 
     @patch("src.embedding.vector_store.get_or_create_collection")
     @patch("src.embedding.vector_store.get_chroma_client")

@@ -30,6 +30,7 @@ from src.embedding.vector_store import (
     save_document_outline,
 )
 from src.generation.generator import generate_answer
+from src.generation.models import Answer
 from src.ingestion.pdf_reader import extract_text_from_pdf
 from src.ui.components import (
     render_empty_state,
@@ -52,7 +53,7 @@ class ChatTurn:
     """
 
     question: str
-    answer: any  # Answer pydantic model
+    answer: Answer
     duration_s: float
     scope: list[str] | None
     feedback: int | None = None
