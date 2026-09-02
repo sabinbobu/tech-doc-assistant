@@ -18,6 +18,15 @@ dependency — the `openai` package already used for the "openai" provider works
 unchanged against OpenRouter, just pointed at a different base_url with a
 different API key.
 
+A single pinned ":free" model shares a rate-limited pool with every other
+OpenRouter user of that model — this project hit that directly (a 30-question
+eval run 429'd upstream on "z-ai/glm-5.2:free"). model="openrouter/free" is a
+different thing: an OpenRouter-side router that randomly picks a capable model
+from ~24 free ones per call, so load isn't concentrated on one model. No code
+change needed here to use it — it's just a model string, same as any other —
+but see .env.example for the tradeoff (model identity, and therefore answer
+phrasing/quality, is no longer deterministic per call).
+
 FAILURE MODE — deliberately NOT the same as reranking/rewriting/routing:
 Those three degrade gracefully because they're optional optimizations sitting
 in front of retrieval. This function IS the actual generation step; there's no
