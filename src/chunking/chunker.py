@@ -27,6 +27,7 @@ if the message is too long regardless.
 """
 
 import logging
+import re
 from dataclasses import dataclass
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -35,6 +36,37 @@ from src.chunking.models import Chunk
 from src.ingestion.models import DocumentContent
 
 logger = logging.getLogger(__name__)
+
+# RoboHelp-exported PDFs (this corpus's Epson manual) print a literal
+# "Parent topic: <title>" line at the end of every subsection. A page's raw
+# text often bundles two unrelated subsections together (e.g. envelope
+# margins followed by scanning specs) — under chunk_size they'd stay one
+# chunk, and the answer to a spec-lookup question gets diluted by an
+# unrelated section, which is measurably fatal under BM25's term-frequency
+# scoring (verified: recall@8 = 0.00 on two Epson spec questions whose
+# gold chunk mixed sections). Splitting on this marker first, before the
+# character splitter runs per-segment, keeps each subsection its own chunk.
+# No-op for documents without this marker (confirmed: MISRA and the
+# Infineon datasheet never contain it) — same output as before this change.
+_PARENT_TOPIC_RE = re.compile(r"(Parent topic: [^\n]*\n?)")
+
+
+def _split_on_parent_topic(text: str) -> list[str]:
+    """Pre-segment text at 'Parent topic: ...' boundaries (see module docstring above)."""
+    if "Parent topic:" not in text:
+        return [text]
+
+    parts = _PARENT_TOPIC_RE.split(text)
+    segments: list[str] = []
+    buffer = ""
+    for part in parts:
+        buffer += part
+        if _PARENT_TOPIC_RE.fullmatch(part):
+            segments.append(buffer)
+            buffer = ""
+    if buffer.strip():
+        segments.append(buffer)
+    return segments
 
 
 @dataclass
@@ -91,8 +123,16 @@ def chunk_document(
         if not page.text.strip():
             continue
 
-        # Split this page's text into raw string chunks
-        raw_chunks = splitter.split_text(page.text)
+        # Split this page's text into raw string chunks. Pre-segmenting on
+        # "Parent topic:" boundaries first (see _split_on_parent_topic) keeps
+        # unrelated subsections from being bundled into one chunk; the
+        # character splitter then still applies chunk_size/overlap within
+        # each segment exactly as before.
+        raw_chunks = [
+            chunk
+            for segment in _split_on_parent_topic(page.text)
+            for chunk in splitter.split_text(segment)
+        ]
 
         for raw_chunk in raw_chunks:
             # Skip chunks that are too small — they're usually noise
