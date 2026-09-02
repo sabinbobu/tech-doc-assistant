@@ -99,6 +99,37 @@ class Settings(BaseSettings):
     # in ~1s with no meaningful quality loss for this corpus's English,
     # short-passage technical documents. Bigger cross-encoders earn their
     # cost on harder ranking problems; this one doesn't need it.
+    #
+    # WARM VS COLD — read this before "optimizing" the reranker from a trace.
+    # Re-measured 2026-09-02 with Opik tracing in place:
+    #     model load (once per process) ... 12,411 ms
+    #     rerank, 20 candidates, warm .....    296 ms
+    #     rerank, 10 candidates, warm .....    259 ms
+    # The load is ~40x the per-query cost, so a trace taken on a cold process
+    # shows a ~9s `rerank` span that is almost entirely model load. That number
+    # is genuinely misleading: reading it as steady-state makes the reranker
+    # look like 54% of end-to-end latency when warm it is closer to 6%.
+    #
+    # Consequences, all measured rather than argued:
+    #   - Shrinking the candidate pool 20 -> 10 saves 37 ms and costs recall.
+    #     retrieval_candidate_k stays 20.
+    #   - A faster local model (FlashRank et al.) could only ever win back part
+    #     of 296 ms, while doing nothing about the 12.4s that caused the number.
+    #   - An API reranker (Cohere / Jina / Voyage) would ADD network latency, a
+    #     key, and per-query cost to an operation that is currently local, free
+    #     and offline-capable. Strictly worse on every axis this project cares
+    #     about.
+    #   - Turning reranking off for "simple" queries reverts a measured n=36
+    #     win: recall@8 0.967 -> 1.000, MRR 0.800 -> 0.872.
+    # The actual fix for the cold-start cost was warming the model at process
+    # startup instead — see warm_up() in src/retrieval/rerank.py.
+    #
+    # One more trap, also measured: inference latency decays with process IDLE
+    # time. After 5s idle a rerank takes 300ms; after 12s idle, 1,386ms; the
+    # call right after that, 302ms again. rerank always runs just after
+    # plan_query's LLM call has blocked for seconds, so a traced `rerank` span
+    # of ~1.3s is the healthy steady state in the real pipeline — 300ms is only
+    # reachable in a tight benchmark loop. Don't read the gap as a regression.
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L6-v2"
 
     # Kill switch — if the reranker model fails to load (e.g. torch not

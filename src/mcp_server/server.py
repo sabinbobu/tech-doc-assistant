@@ -39,6 +39,7 @@ from src.embedding.vector_store import (
 )
 from src.generation.generator import generate_answer
 from src.retrieval.rerank import rerank
+from src.retrieval.rerank import warm_up as warm_up_reranker
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -59,6 +60,17 @@ async def app_lifespan(app) -> AsyncIterator[dict]:
     collection = get_or_create_collection(client)
     doc_count = collection.count()
     logger.info(f"ChromaDB ready — {doc_count} chunks indexed")
+
+    # The cross-encoder is lazy-loaded, and that load is ~12.4s on this
+    # machine — long enough that an MCP client's first docs_ask/docs_search
+    # would look hung while it happened. Same reasoning as the ChromaDB
+    # connection above: pay for the peripheral once at init, not per call.
+    logger.info("Loading reranker model...")
+    if warm_up_reranker():
+        logger.info(f"Reranker ready — {settings.reranker_model}")
+    else:
+        logger.warning("Reranker unavailable — falling back to hybrid search order")
+
     yield {"collection": collection, "doc_count": doc_count}
     logger.info("MCP server shutting down")
 

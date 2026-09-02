@@ -41,6 +41,10 @@ dependencies = [
     "python-dotenv>=1.0.0",
     # MCP (Model Context Protocol) - for building MCP servers/clients
     "mcp[cli]>=1.0.0",
+    # LLM observability - traces every stage of the RAG pipeline (route,
+    # retrieve, rerank, generate) to Opik with latency, tokens and cost.
+    # Disabled without code changes via OPIK_TRACK_DISABLE=true.
+    "opik>=1.7.0",
     "numpy<2",
 ]
 

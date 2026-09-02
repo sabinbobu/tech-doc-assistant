@@ -18,6 +18,14 @@ on:
   pull_request:
     branches: [main]
 
+# Opik tracing is on by default in src/ (see src/generation/generator.py).
+# CI runs the pipeline against mocked LLMs hundreds of times — those aren't
+# real answers and don't belong in the Tech-Doc-Assistant project. Opik's own
+# kill switch turns every @opik.track into a pass-through with no code change
+# and no network calls, which also keeps CI from needing an OPIK_API_KEY.
+env:
+  OPIK_TRACK_DISABLE: "true"
+
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest

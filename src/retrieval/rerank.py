@@ -30,6 +30,8 @@ ranked by hybrid search), never raises.
 
 import logging
 
+import opik
+
 from src.config import settings
 
 logger = logging.getLogger(__name__)
@@ -69,6 +71,70 @@ def _get_model():
         return None
 
 
+def warm_up() -> bool:
+    """
+    Load the cross-encoder now, so the first real query doesn't pay for it.
+
+    WHY THIS EXISTS — measured, not assumed:
+    _get_model() is lazy, and "lazy" means the ~12.4s SentenceTransformer load
+    (torch import + weights off disk) happens inside whichever request happens
+    to be first. On this machine that made the first Opik-traced answer 16.7s
+    end to end, with a 9.0s `rerank` span — while the SECOND rerank in the same
+    process took 296ms. Same model, same 20 candidates, 30x apart.
+
+    That gap is a trap for anyone reading a single trace: it looks exactly like
+    a slow reranker, and the obvious "fix" (swap the model, shrink the candidate
+    pool, call a reranking API) targets the 296ms rather than the 12.4s. See the
+    benchmark comment on settings.reranker_model in src/config.py.
+
+    Long-lived processes (the Streamlit app, the MCP server) call this at
+    startup, moving that one-time cost to boot where a user isn't waiting on it.
+
+    WHAT THIS DOES NOT FIX — measured, so nobody re-derives it from a trace:
+    inference latency decays with process idle time, independently of this
+    warm-up. Same model, same 20 candidates, same process:
+        immediately after warm_up ...  431 ms
+        after  5s idle ..............  300 ms
+        after 12s idle .............. 1386 ms   (next call back to 302 ms)
+    That's torch's thread pool parking (or the OS reclaiming pages) during the
+    wait, and it lands squarely on rerank because rerank always runs right
+    after plan_query's LLM call has blocked for several seconds. So a traced
+    `rerank` span of ~1.3s is expected and healthy in the full pipeline; ~300ms
+    only happens when a rerank closely follows another one. Keeping the model
+    hot through idle would need a background keep-alive thread burning CPU
+    forever to save ~1s — not worth it. Deliberately not built.
+
+    Returns:
+        True if the model is loaded and reranking will actually run, False if
+        it failed to load (in which case rerank() degrades to hybrid search's
+        own ordering, exactly as it does without this call). Never raises —
+        warming up is an optimization, and an optimization must not be able to
+        take the app down.
+    """
+    if not settings.reranking_enabled:
+        return False
+
+    model = _get_model()
+    if model is None:
+        return False
+
+    # Constructing the CrossEncoder is not the whole cost — the FIRST predict()
+    # pays again for torch's lazy first forward pass. Measured: with the model
+    # loaded but never run, the first real rerank took 1,171ms; with one
+    # throwaway pair run first, 424ms; steady state 300ms. Warm-up batch size
+    # makes no difference (1 pair and 20 pairs measured identical), so one pair.
+    try:
+        model.predict([("warm up", "warm up")])
+    except Exception:
+        # A failed dummy inference says nothing about real queries (and rerank()
+        # has its own try/except around predict anyway). Log and carry on — the
+        # model loaded, which is the part that mattered.
+        logger.exception("Reranker warm-up inference failed — model loaded, continuing.")
+
+    return True
+
+
+@opik.track(type="tool")
 def rerank(query: str, candidates: list[dict], top_k: int) -> list[dict]:
     """
     Re-score and re-sort candidates by actual relevance to the query.

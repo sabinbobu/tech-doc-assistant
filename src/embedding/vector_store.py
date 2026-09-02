@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Literal
 
 import chromadb
+import opik
 from chromadb.api.types import Metadata, Where
 from chromadb.utils import embedding_functions
 from rank_bm25 import BM25Okapi
@@ -428,6 +429,7 @@ def _reciprocal_rank_fusion(
     return fused
 
 
+@opik.track(type="tool")
 def query_collection(
     query_text: str,
     n_results: int = 5,

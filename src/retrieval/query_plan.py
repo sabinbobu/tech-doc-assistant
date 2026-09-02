@@ -45,6 +45,7 @@ import json
 import logging
 from typing import Literal
 
+import opik
 from pydantic import BaseModel
 
 from src.config import settings
@@ -122,6 +123,7 @@ class QueryPlan(BaseModel):
     structural_keyword: str | None = None
 
 
+@opik.track(type="tool")
 def plan_query(question: str) -> QueryPlan:
     """
     Classify a question and decompose it if procedural.
