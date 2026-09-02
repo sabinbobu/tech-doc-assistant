@@ -5,6 +5,8 @@ Pure functions (no import streamlit) that transform data into display strings.
 This module is isolated so it's readable and trivially verifiable with pytest.
 """
 
+from typing import Literal
+
 from src.generation.models import RetrievedContext
 
 
@@ -65,7 +67,15 @@ MODE_LABELS: dict[str, str] = {
     "structural": "📑 Structural (document outline)",
 }
 
-MODE_COLORS: dict[str, str] = {
+# Typed as the literal set st.badge() accepts, not plain str: these values are
+# passed straight to Streamlit, which types `color` as a Literal. dict[str, str]
+# would widen them back to str at the call site and fail type checking even
+# though every value here is valid.
+BadgeColor = Literal[
+    "red", "orange", "yellow", "blue", "green", "violet", "gray", "grey", "primary"
+]
+
+MODE_COLORS: dict[str, BadgeColor] = {
     "lookup": "blue",
     "procedural": "orange",
     "structural": "violet",

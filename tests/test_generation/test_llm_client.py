@@ -24,8 +24,14 @@ def _openai_style_response(text: str) -> MagicMock:
 
 
 def _anthropic_style_response(text: str) -> MagicMock:
+    # A real TextBlock, not MagicMock(text=...): _call_anthropic now narrows
+    # the content-block union with isinstance() before reading .text, and a
+    # bare mock passes no isinstance check. Using the real type also means
+    # this fixture stays honest if the SDK's block shape changes.
+    from anthropic.types import TextBlock
+
     response = MagicMock()
-    response.content = [MagicMock(text=text)]
+    response.content = [TextBlock(type="text", text=text)]
     return response
 
 
@@ -147,6 +153,20 @@ class TestCallAnthropic:
         _, kwargs = mock_client.messages.create.call_args
         assert kwargs["model"] == "claude-sonnet-5"
         assert kwargs["system"] == "sys"
+
+    def test_raises_clearly_on_non_text_block(self):
+        """A thinking/tool-use block must fail loudly, not AttributeError."""
+        from anthropic.types import ThinkingBlock
+
+        with patch("anthropic.Anthropic") as mock_anthropic_cls:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.content = [ThinkingBlock(type="thinking", thinking="...", signature="sig")]
+            mock_client.messages.create.return_value = response
+            mock_anthropic_cls.return_value = mock_client
+
+            with pytest.raises(RuntimeError, match="Expected a text block"):
+                llm_client._call_anthropic("sys", "user", "claude-sonnet-5", 256)
 
 
 class TestCallOpenRouter:
