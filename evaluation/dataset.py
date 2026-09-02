@@ -232,8 +232,7 @@ EVALUATION_DATASET = [
     },
     {
         "question": (
-            "What happens to violations of a guideline that has been re-categorized as "
-            "Disapplied?"
+            "What happens to violations of a guideline that has been re-categorized as Disapplied?"
         ),
         "ground_truth": (
             "Violations of guidelines which have been re-categorized as Disapplied are "
@@ -361,8 +360,7 @@ EVALUATION_DATASET = [
     },
     {
         "question": (
-            "What does it mean if the printer's power light is flashing and the ink "
-            "light is on?"
+            "What does it mean if the printer's power light is flashing and the ink light is on?"
         ),
         "ground_truth": (
             "It means an error occurred during firmware updating. You should connect "
@@ -416,6 +414,84 @@ EVALUATION_DATASET = [
         "category": "definition",
         "gold_doc": "EpsonPrinterDocumentation.pdf",
         "gold_pages": [172],
+        "identifier_heavy": True,
+    },
+    # ── New infineon-bts7200-2epa-datasheet-en.pdf questions ──
+    {
+        "question": "What is the absolute maximum supply voltage (VS) rating for the BTS7200-2EPA?",
+        "ground_truth": (
+            "The absolute maximum Power Supply Voltage (VS) is 28 V (minimum -0.3 V), "
+            "per Table 3, Absolute Maximum Ratings - General. Stresses above the listed "
+            "absolute maximum ratings may cause permanent damage to the device."
+        ),
+        "category": "definition",
+        "gold_doc": "infineon-bts7200-2epa-datasheet-en.pdf",
+        "gold_pages": [7, 8],
+        "identifier_heavy": True,
+    },
+    {
+        "question": (
+            "What sense resistor (RSENSE) value is required between the IS pin and "
+            "ground for current diagnosis?"
+        ),
+        "ground_truth": (
+            "RSENSE must be connected between the IS pin and module ground, with a "
+            "value higher than 820 Ω (or 400 Ω when a central Reverse Battery "
+            "protection is present on the battery feed) to limit power losses in the "
+            "sense circuitry. A typical value is RSENSE = 1.2 kΩ."
+        ),
+        "category": "definition",
+        "gold_doc": "infineon-bts7200-2epa-datasheet-en.pdf",
+        "gold_pages": [41],
+        "identifier_heavy": True,
+    },
+    {
+        "question": "What are the three operation modes of the BTS7200-2EPA?",
+        "ground_truth": "Sleep mode, Active mode, and Stand-by mode.",
+        "category": "classification",
+        "gold_doc": "infineon-bts7200-2epa-datasheet-en.pdf",
+        "gold_pages": [15],
+        "identifier_heavy": True,
+    },
+    {
+        "question": "What fault conditions does the BTS7200-2EPA protect against?",
+        "ground_truth": (
+            "The device is protected against Overtemperature, Overload, Reverse "
+            "Battery, and Overvoltage. Overtemperature and Overload protections work "
+            "whenever the device is not in Sleep mode; Overvoltage protection works "
+            "in all operation modes; Reverse Battery protection works when the GND "
+            "and VS pins are reverse supplied."
+        ),
+        "category": "classification",
+        "gold_doc": "infineon-bts7200-2epa-datasheet-en.pdf",
+        "gold_pages": [29],
+        "identifier_heavy": True,
+    },
+    {
+        "question": "What does the DEN pin do?",
+        "ground_truth": (
+            "DEN is the Diagnostic Enable pin: a 'high'-active digital signal that "
+            "enables device diagnosis and clears the protection counter of the "
+            "channel selected with the DSEL pin. If unused, it should be connected "
+            "via a 10 kΩ resistor to GND or module ground."
+        ),
+        "category": "definition",
+        "gold_doc": "infineon-bts7200-2epa-datasheet-en.pdf",
+        "gold_pages": [6],
+        "identifier_heavy": False,
+    },
+    {
+        "question": (
+            "What is the minimum supply voltage needed for the BTS7200-2EPA to "
+            "switch ON, and what is the minimum voltage during cranking?"
+        ),
+        "ground_truth": (
+            "The minimum operating voltage at switch ON is VS(OP) = 4.1 V, and the "
+            "minimum operating voltage during cranking is VS(UV) = 3.1 V."
+        ),
+        "category": "definition",
+        "gold_doc": "infineon-bts7200-2epa-datasheet-en.pdf",
+        "gold_pages": [2],
         "identifier_heavy": True,
     },
 ]
