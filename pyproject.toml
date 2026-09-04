@@ -64,6 +64,15 @@ eval = [
     "datasets>=3.0",         # For loading evaluation datasets
 ]
 
+# Only needed to regenerate Tech_Doc_Assistant_Report.pdf via
+# scripts/generate_report.py. Kept out of the runtime dependencies so it never
+# ships in the Docker image, and out of `dev` so CI doesn't install it. The
+# previous version of that script imported fpdf without recording it anywhere,
+# which is why it stopped running once the original environment was gone.
+docs = [
+    "fpdf2>=2.7",            # PDF generation for the project report
+]
+
 [tool.uv]
 required-environments = [
     "sys_platform == 'darwin' and platform_machine == 'x86_64'",
